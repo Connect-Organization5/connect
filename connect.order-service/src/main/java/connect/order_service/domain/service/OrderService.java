@@ -9,12 +9,17 @@ import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderResponse;
 import connect.order_service.domain.entity.Order;
 import connect.order_service.domain.repository.OrderRepository;
+import connect.order_service.global.dto.PagedResponse;
 import connect.order_service.global.exception.BaseException;
 import connect.order_service.global.exception.ErrorCode;
 import connect.order_service.global.slack.SlackWebhookSender;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
@@ -30,6 +35,8 @@ public class OrderService {
     private final HubClient hubClient;
     private final DeliveryClient deliveryClient;
     private final SlackWebhookSender slackWebhookSender;
+
+    private static final String ADMIN_ROLE = "ADMIN";
 
 
     public OrderResponse createOrder(UUID userId, @Valid CreateOrderRequest request) {
@@ -74,6 +81,31 @@ public class OrderService {
         return OrderResponse.from(order);
     }
 
+    public OrderResponse searchOrder(UUID userId, String role, UUID orderId) {
+        Order order = orderRepository.findByIdAndDeletedAtIsNull(orderId)
+                .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
+
+        // 관리자가 아니면 본인 주문만 조회 가능
+        if (!isAdmin(role) && !userId.equals(order.getCreatedBy())) {
+            throw new BaseException(ErrorCode.ORDER_ACCESS_DENIED);
+        }
+        return OrderResponse.from(order);
+    }
+
+    public PagedResponse<OrderResponse> searchPageOrders(UUID userId, String role, int page, int size) {
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        // 관리자는 전체, 일반 사용자는 본인 주문만 조회 (취소된 주문 포함)
+        Page<Order> orders = isAdmin(role)
+                ? orderRepository.findAllByDeletedAtIsNull(pageable)
+                : orderRepository.findAllByCreatedByAndDeletedAtIsNull(userId, pageable);
+
+        return PagedResponse.from(orders.map(OrderResponse::from));
+    }
+//---------------------------------------------------------
     // 주문자와 공급 업체 담당자를 멘션해서 알림 채널에 발송
     private void notifyOrderCreated(UserInfo orderer, Order order) {
         try {
@@ -109,4 +141,10 @@ public class OrderService {
     private String mention(String slackId) {
         return (slackId == null || slackId.isBlank()) ? "" : "<@" + slackId + ">";
     }
+
+    private boolean isAdmin(String role) {
+        return ADMIN_ROLE.equalsIgnoreCase(role);
+    }
+
+
 }
