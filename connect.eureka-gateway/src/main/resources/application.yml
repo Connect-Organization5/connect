@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: eureka-gateway
+
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          routes:
+            - id: user-service
+              uri: lb://user-service
+              predicates:
+                - Path=/auth/**, /users/**
+
+            - id: hub-service
+              uri: lb://hub-service
+              predicates:
+                - Path=/hubs, /hubs/**
+
+            - id: company-service
+              uri: lb://company-service
+              predicates:
+                - Path=/companies, /companies/**
+
+            - id: order-service
+              uri: lb://order-service
+              predicates:
+                - Path=/orders, /orders/**
+
+            - id: delivery-service
+              uri: lb://delivery-service
+              predicates:
+                - Path=/deliveries, /deliveries/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: gateway
