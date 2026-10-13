@@ -23,3 +23,5 @@ eureka:
     service-url:
       defaultZone: http://localhost:8761/eureka/
 
+slack:
+  webhook-url: ${SLACK_WEBHOOK_URL:}

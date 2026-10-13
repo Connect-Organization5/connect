@@ -50,4 +50,7 @@ public class Order extends TimeStamp {
         this.receiver = receiver;
     }
 
+    public void complete(UUID deliveryId) {
+        this.deliveryId = deliveryId;
+    }
 }
