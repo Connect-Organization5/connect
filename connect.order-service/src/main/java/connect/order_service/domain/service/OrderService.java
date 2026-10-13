@@ -42,18 +42,19 @@ public class OrderService {
         CompanyInfo requester = companyClient.getCompany(orderer.companyId());
         ProductInfo product = productClient.getProduct(request.getProductId());
 
-        Order order = Order.builder()
+        Order order = orderRepository.save(Order.builder()
                 .requesterCompanyId(requester.companyId())
                 .supplierCompanyId(product.supplierCompanyId())
                 .productId(product.productId())
                 .quantity(request.getQuantity())
                 .requestMessage(request.getRequestMessage())
                 .receiver(request.getReceiver())
-                .build();
+                .build());
 
         boolean decreased = hubClient.decreaseStock(
                 product.hubId(), product.productId(), request.getQuantity(), order.getId());
         if (!decreased) {
+            cancel(order);
             throw new BaseException(ErrorCode.OUT_OF_STOCK);
         }
 
@@ -68,6 +69,7 @@ public class OrderService {
         } catch (Exception e) {
             log.error("배송 생성 실패 - orderId={}", order.getId(), e);
             hubClient.increaseStock(product.hubId(), product.productId(), request.getQuantity(), order.getId());
+            cancel(order);
             throw new BaseException(ErrorCode.DELIVERY_CREATE_FAILED);
         }
 
@@ -107,6 +109,9 @@ public class OrderService {
     public OrderResponse updateOrder(UUID userId, String role, UUID orderId, UpdateOrderRequest request) {
         Order order = findActiveOrder(orderId);
         validateOrderOwner(userId, role, order);
+        if (order.isCanceled()) {
+            throw new BaseException(ErrorCode.ORDER_ALREADY_CANCELED);
+        }
         validateDeliveryReady(order);
 
         ProductInfo oldProduct = productClient.getProduct(order.getProductId());
@@ -133,7 +138,22 @@ public class OrderService {
         return OrderResponse.from(orderRepository.save(order));
     }
 
+    public void deleteOrder(UUID userId, String role, UUID orderId) {
+        Order order = findActiveOrder(orderId);
+        validateOrderOwner(userId, role, order);
 
+        // 재고 부족 등으로 이미 취소된 주문은 재고와 배송 처리 없이 삭제만
+        if (!order.isCanceled()) {
+            validateDeliveryReady(order);
+            ProductInfo product = productClient.getProduct(order.getProductId());
+
+            deliveryClient.cancelDelivery(order.getDeliveryId());
+            hubClient.increaseStock(product.hubId(), product.productId(), order.getQuantity(), order.getId());
+        }
+
+        order.delete(userId);
+        orderRepository.save(order);
+    }
 
     //---------------------------------------------------------
     // 주문자와 공급 업체 담당자를 멘션해서 알림 채널에 발송
@@ -170,6 +190,11 @@ public class OrderService {
     // slackId가 없으면 멘션 생략
     private String mention(String slackId) {
         return (slackId == null || slackId.isBlank()) ? "" : "<@" + slackId + ">";
+    }
+
+    private void cancel(Order order) {
+        order.cancel();
+        orderRepository.save(order);
     }
 
     private boolean isAdmin(String role) {

@@ -62,4 +62,14 @@ public class OrderController {
         OrderResponse response = orderService.updateOrder(userId, role, orderId, request);
         return ResponseEntity.ok(ApiResponse.ok("주문이 수정되었습니다.", response));
     }
+
+    @DeleteMapping("/{orderId}")
+    public ResponseEntity<ApiResponse<Void>> deleteOrder(
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role,
+            @PathVariable UUID orderId) {
+
+        orderService.deleteOrder(userId, role, orderId);
+        return ResponseEntity.ok(ApiResponse.ok("주문이 취소되었습니다.", null));
+    }
 }

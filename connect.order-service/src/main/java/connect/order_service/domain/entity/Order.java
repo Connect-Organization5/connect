@@ -39,6 +39,10 @@ public class Order extends TimeStamp {
     @Column(nullable = false, length = 50)
     private String receiver;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private OrderStatus status;
+
     @Builder
     private Order(UUID requesterCompanyId, UUID supplierCompanyId, UUID productId,
                   Integer quantity, String requestMessage, String receiver) {
@@ -48,10 +52,12 @@ public class Order extends TimeStamp {
         this.quantity = quantity;
         this.requestMessage = requestMessage;
         this.receiver = receiver;
+        this.status = OrderStatus.PENDING;
     }
 
     public void complete(UUID deliveryId) {
         this.deliveryId = deliveryId;
+        this.status = OrderStatus.CREATED;
     }
 
     public void update(UUID productId, UUID supplierCompanyId, Integer quantity,
@@ -61,5 +67,18 @@ public class Order extends TimeStamp {
         this.quantity = quantity;
         this.requestMessage = requestMessage;
         this.receiver = receiver;
+    }
+
+    public void delete(UUID userId) {
+        this.status = OrderStatus.CANCELED;
+        softDelete(userId);
+    }
+
+    public boolean isCanceled() {
+        return this.status == OrderStatus.CANCELED;
+    }
+
+    public void cancel() {
+        this.status = OrderStatus.CANCELED;
     }
 }
