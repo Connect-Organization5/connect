@@ -74,11 +74,11 @@ public class Order extends TimeStamp {
         softDelete(userId);
     }
 
-    public boolean isCanceled() {
-        return this.status == OrderStatus.CANCELED;
+    public boolean isModifiable() {
+        return this.status == OrderStatus.CREATED;
     }
 
-    public void cancel() {
-        this.status = OrderStatus.CANCELED;
+    public void fail() {
+        this.status = OrderStatus.FAILED;
     }
 }

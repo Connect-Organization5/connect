@@ -54,7 +54,7 @@ public class OrderService {
         boolean decreased = hubClient.decreaseStock(
                 product.hubId(), product.productId(), request.getQuantity(), order.getId());
         if (!decreased) {
-            cancel(order);
+            fail(order);
             throw new BaseException(ErrorCode.OUT_OF_STOCK);
         }
 
@@ -69,7 +69,7 @@ public class OrderService {
         } catch (Exception e) {
             log.error("배송 생성 실패 - orderId={}", order.getId(), e);
             hubClient.increaseStock(product.hubId(), product.productId(), request.getQuantity(), order.getId());
-            cancel(order);
+            fail(order);
             throw new BaseException(ErrorCode.DELIVERY_CREATE_FAILED);
         }
 
@@ -98,7 +98,7 @@ public class OrderService {
                 size,
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        // 관리자는 전체, 일반 사용자는 본인 주문만 조회 (취소된 주문 포함)
+        // 관리자는 전체, 일반 사용자는 본인 주문만 조회 (실패된 주문 포함)
         Page<Order> orders = isAdmin(role)
                 ? orderRepository.findAllByDeletedAtIsNull(pageable)
                 : orderRepository.findAllByCreatedByAndDeletedAtIsNull(userId, pageable);
@@ -109,8 +109,8 @@ public class OrderService {
     public OrderResponse updateOrder(UUID userId, String role, UUID orderId, UpdateOrderRequest request) {
         Order order = findActiveOrder(orderId);
         validateOrderOwner(userId, role, order);
-        if (order.isCanceled()) {
-            throw new BaseException(ErrorCode.ORDER_ALREADY_CANCELED);
+        if (!order.isModifiable()) {
+            throw new BaseException(ErrorCode.ORDER_NOT_MODIFIABLE);
         }
         validateDeliveryReady(order);
 
@@ -143,7 +143,7 @@ public class OrderService {
         validateOrderOwner(userId, role, order);
 
         // 재고 부족 등으로 이미 취소된 주문은 재고와 배송 처리 없이 삭제만
-        if (!order.isCanceled()) {
+        if (order.isModifiable()) {
             validateDeliveryReady(order);
             ProductInfo product = productClient.getProduct(order.getProductId());
 
@@ -192,8 +192,8 @@ public class OrderService {
         return (slackId == null || slackId.isBlank()) ? "" : "<@" + slackId + ">";
     }
 
-    private void cancel(Order order) {
-        order.cancel();
+    private void fail(Order order) {
+        order.fail();
         orderRepository.save(order);
     }
 
