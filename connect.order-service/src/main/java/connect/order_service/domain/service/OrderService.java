@@ -1,12 +1,10 @@
 package connect.order_service.domain.service;
 
 import connect.order_service.domain.client.clientInterface.*;
-import connect.order_service.domain.client.dto.CompanyInfo;
-import connect.order_service.domain.client.dto.DeliveryCreateRequest;
-import connect.order_service.domain.client.dto.ProductInfo;
-import connect.order_service.domain.client.dto.UserInfo;
+import connect.order_service.domain.client.dto.*;
 import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderResponse;
+import connect.order_service.domain.dto.UpdateOrderRequest;
 import connect.order_service.domain.entity.Order;
 import connect.order_service.domain.repository.OrderRepository;
 import connect.order_service.global.dto.PagedResponse;
@@ -37,7 +35,7 @@ public class OrderService {
     private final SlackWebhookSender slackWebhookSender;
 
     private static final String ADMIN_ROLE = "ADMIN";
-
+    private static final String MODIFIABLE_DELIVERY_STATUS = "READY";
 
     public OrderResponse createOrder(UUID userId, @Valid CreateOrderRequest request) {
         UserInfo orderer = userClient.getUser(userId);
@@ -105,7 +103,39 @@ public class OrderService {
 
         return PagedResponse.from(orders.map(OrderResponse::from));
     }
-//---------------------------------------------------------
+
+    public OrderResponse updateOrder(UUID userId, String role, UUID orderId, UpdateOrderRequest request) {
+        Order order = findActiveOrder(orderId);
+        validateOrderOwner(userId, role, order);
+        validateDeliveryReady(order);
+
+        ProductInfo oldProduct = productClient.getProduct(order.getProductId());
+        ProductInfo newProduct = productClient.getProduct(request.getProductId());
+
+        // 1. 재고 조정
+        adjustStock(order.getId(), oldProduct, order.getQuantity(), newProduct, request.getQuantity());
+
+        // 2. 배송 수정, 실패하면 재고 조정을 되돌림
+        try {
+            deliveryClient.updateDelivery(order.getDeliveryId(), new DeliveryUpdateRequest(
+                    newProduct.hubId(),
+                    request.getDeliveryAddress(),
+                    request.getReceiver()));
+        } catch (Exception e) {
+            log.error("배송 수정 실패 - orderId={}", order.getId(), e);
+            adjustStock(order.getId(), newProduct, request.getQuantity(), oldProduct, order.getQuantity());
+            throw new BaseException(ErrorCode.DELIVERY_UPDATE_FAILED);
+        }
+
+        // 3. 주문 수정
+        order.update(newProduct.productId(), newProduct.supplierCompanyId(), request.getQuantity(),
+                request.getRequestMessage(), request.getReceiver());
+        return OrderResponse.from(orderRepository.save(order));
+    }
+
+
+
+    //---------------------------------------------------------
     // 주문자와 공급 업체 담당자를 멘션해서 알림 채널에 발송
     private void notifyOrderCreated(UserInfo orderer, Order order) {
         try {
@@ -146,5 +176,43 @@ public class OrderService {
         return ADMIN_ROLE.equalsIgnoreCase(role);
     }
 
+    private Order findActiveOrder(UUID orderId) {
+        return orderRepository.findByIdAndDeletedAtIsNull(orderId)
+                .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
+    }
 
+    private void validateOrderOwner(UUID userId, String role, Order order) {
+        if (isAdmin(role) || userId.equals(order.getCreatedBy())) {
+            return;
+        }
+        CompanyInfo supplier = companyClient.getCompany(order.getSupplierCompanyId());
+        if (!userId.equals(supplier.managerId())) {
+            throw new BaseException(ErrorCode.ORDER_MODIFY_DENIED);
+        }
+    }
+
+    private void validateDeliveryReady(Order order) {
+        DeliveryInfo delivery = deliveryClient.getDelivery(order.getDeliveryId());
+        if (!MODIFIABLE_DELIVERY_STATUS.equals(delivery.status())) {
+            throw new BaseException(ErrorCode.ORDER_DELIVERY_STARTED);
+        }
+    }
+
+    private void adjustStock(UUID orderId, ProductInfo product, int Quantity, ProductInfo updateProduct, int updateQuantity) {
+        if (product.productId().equals(updateProduct.productId())) {
+            int diff = updateQuantity - Quantity;
+            if (diff > 0 && !hubClient.decreaseStock(updateProduct.hubId(), updateProduct.productId(), diff, orderId)) {
+                throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
+            }
+            if (diff < 0) {
+                hubClient.increaseStock(updateProduct.hubId(), updateProduct.productId(), -diff, orderId);
+            }
+            return;
+        }
+        // 상품 변경: 새 상품 차감이 성공한 뒤에 기존 상품을 복구
+        if (!hubClient.decreaseStock(updateProduct.hubId(), updateProduct.productId(), updateQuantity, orderId)) {
+            throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
+        }
+        hubClient.increaseStock(product.hubId(), product.productId(), Quantity, orderId);
+    }
 }

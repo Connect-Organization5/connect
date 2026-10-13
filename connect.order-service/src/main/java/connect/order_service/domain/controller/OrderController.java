@@ -2,6 +2,7 @@ package connect.order_service.domain.controller;
 
 import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderResponse;
+import connect.order_service.domain.dto.UpdateOrderRequest;
 import connect.order_service.domain.service.OrderService;
 import connect.order_service.global.dto.ApiResponse;
 import connect.order_service.global.dto.PagedResponse;
@@ -49,5 +50,16 @@ public class OrderController {
 
         PagedResponse<OrderResponse> response = orderService.searchPageOrders(userId, role, page, size);
         return ResponseEntity.ok(ApiResponse.ok("주문 목록 조회에 성공했습니다.", response));
+    }
+
+    @PutMapping("/{orderId}")
+    public ResponseEntity<ApiResponse<OrderResponse>> updateOrder(
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role,
+            @PathVariable UUID orderId,
+            @Valid @RequestBody UpdateOrderRequest request) {
+
+        OrderResponse response = orderService.updateOrder(userId, role, orderId, request);
+        return ResponseEntity.ok(ApiResponse.ok("주문이 수정되었습니다.", response));
     }
 }

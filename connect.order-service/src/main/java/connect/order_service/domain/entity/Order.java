@@ -53,4 +53,13 @@ public class Order extends TimeStamp {
     public void complete(UUID deliveryId) {
         this.deliveryId = deliveryId;
     }
+
+    public void update(UUID productId, UUID supplierCompanyId, Integer quantity,
+                       String requestMessage, String receiver) {
+        this.productId = productId;
+        this.supplierCompanyId = supplierCompanyId;
+        this.quantity = quantity;
+        this.requestMessage = requestMessage;
+        this.receiver = receiver;
+    }
 }
