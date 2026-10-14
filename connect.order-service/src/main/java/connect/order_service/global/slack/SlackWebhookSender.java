@@ -12,10 +12,12 @@ import java.util.Map;
 @Component
 public class SlackWebhookSender {
 
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
     private final String webhookUrl;
 
-    public SlackWebhookSender(@Value("${slack.webhook-url}") String webhookUrl) {
+    public SlackWebhookSender(RestClient.Builder restClientBuilder,
+                              @Value("${slack.webhook-url}") String webhookUrl) {
+        this.restClient = restClientBuilder.build();
         this.webhookUrl = webhookUrl;
     }
 

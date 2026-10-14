@@ -1,6 +1,7 @@
 package connect.order_service.domain.dto;
 
 import connect.order_service.domain.entity.Order;
+import connect.order_service.domain.entity.OrderStatus;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -14,7 +15,9 @@ public record OrderResponse(
         Integer quantity,
         String requestMessage,
         String receiver,
-        LocalDateTime createdAt
+        OrderStatus orderStatus,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt
 ) {
     public static OrderResponse from(Order order) {
         return new OrderResponse(
@@ -26,7 +29,9 @@ public record OrderResponse(
                 order.getQuantity(),
                 order.getRequestMessage(),
                 order.getReceiver(),
-                order.getCreatedAt()
+                order.getStatus(),
+                order.getCreatedAt(),
+                order.getUpdatedAt()
         );
     }
 }

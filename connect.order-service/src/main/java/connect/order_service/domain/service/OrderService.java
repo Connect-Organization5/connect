@@ -11,7 +11,6 @@ import connect.order_service.global.dto.PagedResponse;
 import connect.order_service.global.exception.BaseException;
 import connect.order_service.global.exception.ErrorCode;
 import connect.order_service.global.slack.SlackWebhookSender;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -37,7 +36,7 @@ public class OrderService {
     private static final String ADMIN_ROLE = "ADMIN";
     private static final String MODIFIABLE_DELIVERY_STATUS = "READY";
 
-    public OrderResponse createOrder(UUID userId, @Valid CreateOrderRequest request) {
+    public OrderResponse createOrder(UUID userId, CreateOrderRequest request) {
         UserInfo orderer = userClient.getUser(userId);
         CompanyInfo requester = companyClient.getCompany(orderer.companyId());
         ProductInfo product = productClient.getProduct(request.getProductId());
@@ -51,8 +50,15 @@ public class OrderService {
                 .receiver(request.getReceiver())
                 .build());
 
-        boolean decreased = hubClient.decreaseStock(
-                product.hubId(), product.productId(), request.getQuantity(), order.getId());
+        boolean decreased;
+        try {
+            decreased = hubClient.decreaseStock(
+                    product.hubId(), product.productId(), request.getQuantity(), order.getId());
+        } catch (Exception e) {
+            log.error("재고 차감 실패 - orderId={}", order.getId(), e);
+            fail(order);
+            throw new BaseException(ErrorCode.STOCK_DECREASE_FAILED);
+        }
         if (!decreased) {
             fail(order);
             throw new BaseException(ErrorCode.OUT_OF_STOCK);
@@ -68,7 +74,11 @@ public class OrderService {
                     order.getReceiver()));
         } catch (Exception e) {
             log.error("배송 생성 실패 - orderId={}", order.getId(), e);
-            hubClient.increaseStock(product.hubId(), product.productId(), request.getQuantity(), order.getId());
+            try {
+                hubClient.increaseStock(product.hubId(), product.productId(), request.getQuantity(), order.getId());
+            } catch (Exception ex) {
+                log.error("배송 생성 실패 후 재고 보상 실패 - orderId={}", order.getId(), ex);
+            }
             fail(order);
             throw new BaseException(ErrorCode.DELIVERY_CREATE_FAILED);
         }
@@ -76,7 +86,7 @@ public class OrderService {
         order.complete(deliveryId);
         orderRepository.save(order);
 
-        notifyOrderCreated(orderer, order);
+        slackNotifyOrderCreated(orderer, order);
 
         return OrderResponse.from(order);
     }
@@ -126,10 +136,10 @@ public class OrderService {
                     request.getReceiver()));
         } catch (Exception e) {
             log.error("배송 수정 실패 - orderId={}", order.getId(), e);
-            try{
+            try {
                 adjustStock(order.getId(), product, request.getQuantity(), order.getQuantity());
-            }catch (Exception ex){
-                log.error("재고 보상 실패 - orderId={}", order.getId(), ex);
+            } catch (Exception ex) {
+                log.error("배송 수정 실패 후 재고 보상 실패 - orderId={}", order.getId(), ex);
             }
             throw new BaseException(ErrorCode.DELIVERY_UPDATE_FAILED);
         }
@@ -149,7 +159,12 @@ public class OrderService {
             ProductInfo product = productClient.getProduct(order.getProductId());
 
             deliveryClient.cancelDelivery(order.getDeliveryId());
-            hubClient.increaseStock(product.hubId(), product.productId(), order.getQuantity(), order.getId());
+            // 배송은 이미 취소됐으므로 재고 복구가 실패해도 주문은 취소 처리하고 기록을 남김
+            try {
+                hubClient.increaseStock(product.hubId(), product.productId(), order.getQuantity(), order.getId());
+            } catch (Exception e) {
+                log.error("주문 취소 후 재고 복구 실패 - orderId={}", order.getId(), e);
+            }
         }
 
         order.delete(userId);
@@ -158,7 +173,7 @@ public class OrderService {
 
     //---------------------------------------------------------
     // 주문자와 공급 업체 담당자를 멘션해서 알림 채널에 발송
-    private void notifyOrderCreated(UserInfo orderer, Order order) {
+    private void slackNotifyOrderCreated(UserInfo orderer, Order order) {
         try {
             CompanyInfo supplier = companyClient.getCompany(order.getSupplierCompanyId());
             UserInfo supplierManager = userClient.getUser(supplier.managerId());
