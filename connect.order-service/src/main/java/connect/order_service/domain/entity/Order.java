@@ -60,10 +60,8 @@ public class Order extends TimeStamp {
         this.status = OrderStatus.CREATED;
     }
 
-    public void update(UUID productId, UUID supplierCompanyId, Integer quantity,
+    public void update(Integer quantity,
                        String requestMessage, String receiver) {
-        this.productId = productId;
-        this.supplierCompanyId = supplierCompanyId;
         this.quantity = quantity;
         this.requestMessage = requestMessage;
         this.receiver = receiver;

@@ -114,27 +114,28 @@ public class OrderService {
         }
         validateDeliveryReady(order);
 
-        ProductInfo oldProduct = productClient.getProduct(order.getProductId());
-        ProductInfo newProduct = productClient.getProduct(request.getProductId());
+        ProductInfo product = productClient.getProduct(order.getProductId());
 
         // 1. 재고 조정
-        adjustStock(order.getId(), oldProduct, order.getQuantity(), newProduct, request.getQuantity());
+        adjustStock(order.getId(), product, order.getQuantity(), request.getQuantity());
 
         // 2. 배송 수정, 실패하면 재고 조정을 되돌림
         try {
             deliveryClient.updateDelivery(order.getDeliveryId(), new DeliveryUpdateRequest(
-                    newProduct.hubId(),
                     request.getDeliveryAddress(),
                     request.getReceiver()));
         } catch (Exception e) {
             log.error("배송 수정 실패 - orderId={}", order.getId(), e);
-            adjustStock(order.getId(), newProduct, request.getQuantity(), oldProduct, order.getQuantity());
+            try{
+                adjustStock(order.getId(), product, request.getQuantity(), order.getQuantity());
+            }catch (Exception ex){
+                log.error("재고 보상 실패 - orderId={}", order.getId(), ex);
+            }
             throw new BaseException(ErrorCode.DELIVERY_UPDATE_FAILED);
         }
 
         // 3. 주문 수정
-        order.update(newProduct.productId(), newProduct.supplierCompanyId(), request.getQuantity(),
-                request.getRequestMessage(), request.getReceiver());
+        order.update(request.getQuantity(), request.getRequestMessage(), request.getReceiver());
         return OrderResponse.from(orderRepository.save(order));
     }
 
@@ -223,21 +224,13 @@ public class OrderService {
         }
     }
 
-    private void adjustStock(UUID orderId, ProductInfo product, int Quantity, ProductInfo updateProduct, int updateQuantity) {
-        if (product.productId().equals(updateProduct.productId())) {
-            int diff = updateQuantity - Quantity;
-            if (diff > 0 && !hubClient.decreaseStock(updateProduct.hubId(), updateProduct.productId(), diff, orderId)) {
-                throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
-            }
-            if (diff < 0) {
-                hubClient.increaseStock(updateProduct.hubId(), updateProduct.productId(), -diff, orderId);
-            }
-            return;
-        }
-        // 상품 변경: 새 상품 차감이 성공한 뒤에 기존 상품을 복구
-        if (!hubClient.decreaseStock(updateProduct.hubId(), updateProduct.productId(), updateQuantity, orderId)) {
+    private void adjustStock(UUID orderId, ProductInfo product, int quantity, int updateQuantity) {
+        int diff = updateQuantity - quantity;
+        if (diff > 0 && !hubClient.decreaseStock(product.hubId(), product.productId(), diff, orderId)) {
             throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
         }
-        hubClient.increaseStock(product.hubId(), product.productId(), Quantity, orderId);
+        if (diff < 0) {
+            hubClient.increaseStock(product.hubId(), product.productId(), -diff, orderId);
+        }
     }
 }
