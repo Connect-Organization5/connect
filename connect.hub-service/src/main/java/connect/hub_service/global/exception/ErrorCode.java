@@ -19,6 +19,13 @@ public enum ErrorCode {
     // hub
     HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "허브를 찾을 수 없습니다."),
     ROUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "이동 경로를 찾을 수 없습니다."),
+
+    // stock
+    FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
+    STOCK_NOT_FOUND(HttpStatus.NOT_FOUND, "재고를 찾을 수 없습니다."),
+    STOCK_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 등록된 허브·상품 재고입니다."),
+    STOCK_DELETED(HttpStatus.CONFLICT, "삭제된 재고입니다."),
+    STOCK_QUANTITY_OVERFLOW(HttpStatus.CONFLICT, "재고 수량이 허용 범위를 초과합니다."),
     ;
 
     private final HttpStatus status;
