@@ -1,6 +1,7 @@
 package connect.company_service.company.service;
 
 import connect.company_service.company.dto.request.CreateCompanyRequest;
+import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
 import connect.company_service.company.entity.Company;
 import connect.company_service.company.repository.CompanyRepository;
@@ -81,5 +82,31 @@ public class CompanyService {
                         keyword.trim(), keyword.trim(), pageable);
 
         return PagedResponse.from(companies.map(CompanyResponse::from));
+    }
+
+    // 업체 수정
+    @Transactional
+    public CompanyResponse updateCompany(UUID companyId, UUID userId, String userRole, String affiliationType,
+                                         UpdateCompanyRequest request) {
+        Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
+                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+
+        if (!ROLE_MASTER.equals(userRole)
+                && (!AFFILIATION_COMPANY.equals(affiliationType) || !company.getUserId().equals(userId))) {
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
+        }
+
+        boolean nameChanged = !company.getName().equals(request.name());
+        if (nameChanged && companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
+            throw new BaseException(ErrorCode.COMPANY_ALREADY_EXISTS);
+        }
+
+        // TODO: hub-service 연동 후 hubId 존재 여부 검증 추가
+
+        company.update(request.hubId(), request.name(), request.address());
+
+        // TODO: user-service 연동 방식 확정 후 업체명 변경 시 user-service에 알림
+
+        return CompanyResponse.from(company);
     }
 }

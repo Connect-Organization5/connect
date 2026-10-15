@@ -1,6 +1,7 @@
 package connect.company_service.company.controller;
 
 import connect.company_service.company.dto.request.CreateCompanyRequest;
+import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
 import connect.company_service.company.service.CompanyService;
 import connect.company_service.global.dto.ApiResponse;
@@ -12,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -63,5 +65,18 @@ public class CompanyController {
 
         PagedResponse<CompanyResponse> response = companyService.getCompanies(keyword, page, size);
         return ResponseEntity.ok(ApiResponse.ok("업체 목록이 조회되었습니다.", response));
+    }
+
+    // 업체 수정
+    @PutMapping("/{companyId}")
+    public ResponseEntity<ApiResponse<CompanyResponse>> updateCompany(
+            @PathVariable UUID companyId,
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @RequestHeader(USER_ROLE_HEADER) String userRole,
+            @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType,
+            @Valid @RequestBody UpdateCompanyRequest request) {
+
+        CompanyResponse response = companyService.updateCompany(companyId, userId, userRole, affiliationType, request);
+        return ResponseEntity.ok(ApiResponse.ok("업체가 수정되었습니다.", response));
     }
 }
