@@ -1,10 +1,10 @@
-package connect.auth;
+package connect.user_service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class AuthApplicationTests {
+class UserServiceApplicationTests {
 
 	@Test
 	void contextLoads() {
