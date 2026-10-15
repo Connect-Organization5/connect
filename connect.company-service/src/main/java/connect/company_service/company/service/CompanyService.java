@@ -4,9 +4,13 @@ import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
 import connect.company_service.company.entity.Company;
 import connect.company_service.company.repository.CompanyRepository;
+import connect.company_service.global.dto.PagedResponse;
 import connect.company_service.global.exception.BaseException;
 import connect.company_service.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +24,8 @@ public class CompanyService {
 
     private static final String ROLE_MASTER = "MASTER";
     private static final String AFFILIATION_COMPANY = "COMPANY";
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "createdAt");
 
     private final CompanyRepository companyRepository;
 
@@ -59,5 +65,21 @@ public class CompanyService {
         Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
                 .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
         return CompanyResponse.from(company);
+    }
+
+    // 업체 목록 조회 및 검색
+    @Transactional(readOnly = true)
+    public PagedResponse<CompanyResponse> getCompanies(String keyword, int page, int size) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BaseException(ErrorCode.INVALID_INPUT);
+        }
+
+        PageRequest pageable = PageRequest.of(page, size, DEFAULT_SORT);
+        Page<Company> companies = (keyword == null || keyword.isBlank())
+                ? companyRepository.findByDeletedAtIsNull(pageable)
+                : companyRepository.findByNameContainingAndDeletedAtIsNullOrAddressContainingAndDeletedAtIsNull(
+                        keyword.trim(), keyword.trim(), pageable);
+
+        return PagedResponse.from(companies.map(CompanyResponse::from));
     }
 }
