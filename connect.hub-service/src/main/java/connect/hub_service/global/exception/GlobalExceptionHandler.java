@@ -2,6 +2,7 @@ package connect.hub_service.global.exception;
 
 import connect.hub_service.global.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -44,8 +45,12 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(message));
     }
 
-    // 요청 JSON 형식이 깨졌거나 본문이 없을 때, 파라미터 타입이 맞지 않을 때
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    // 요청 JSON 형식이 깨졌거나 본문이 없을 때, 파라미터 타입이 맞지 않을 때, 파라미터가 UTF-8로 디코딩되지 않을 때
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class,
+            InvalidParameterException.class
+    })
     public ResponseEntity<ApiResponse<Void>> handleInvalidInput(Exception e) {
         return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
                 .body(ApiResponse.error(ErrorCode.INVALID_INPUT.getMessage()));
