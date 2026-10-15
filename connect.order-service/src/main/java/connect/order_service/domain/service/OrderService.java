@@ -3,6 +3,7 @@ package connect.order_service.domain.service;
 import connect.order_service.domain.client.clientInterface.*;
 import connect.order_service.domain.client.dto.*;
 import connect.order_service.domain.dto.CreateOrderRequest;
+import connect.order_service.domain.dto.OrderRequester;
 import connect.order_service.domain.dto.OrderResponse;
 import connect.order_service.domain.dto.UpdateOrderRequest;
 import connect.order_service.domain.entity.Order;
@@ -38,7 +39,12 @@ public class OrderService {
 
     public OrderResponse createOrder(UUID userId, CreateOrderRequest request) {
         UserInfo orderer = userClient.getUser(userId);
-        CompanyInfo requester = companyClient.getCompany(userId);
+        OrderRequester requester =
+                switch (orderer.affiliationType()) {
+                    case "COMPANY" -> OrderRequester.from(companyClient.getSupplyCompany(orderer.affiliationId()));
+                    case "HUB" -> OrderRequester.from(hubClient.getHub(orderer.affiliationId()));
+                    default -> throw new BaseException(ErrorCode.AFFILIATION_NOT_FOUND);
+                };
         ProductInfo product = companyClient.getProduct(request.getProductId());
         CompanyInfo supplier = companyClient.getSupplyCompany(product.supplierCompanyId());
 
@@ -69,9 +75,9 @@ public class OrderService {
         try {
             deliveryId = deliveryClient.createDelivery(new DeliveryCreateRequest(
                     order.getId(),
-                    supplier.hubId(),        // 출발 허브: 상품이 있는 허브
-                    requester.hubId(),      // 도착 허브: 요청 업체의 관리 허브
-                    requester.address(),    // 배송지: 요청 업체 주소
+                    supplier.hubId(),           // 출발 허브
+                    requester.arrivalHubId(),   // 도착 허브
+                    requester.address(),        // 배송지
                     order.getReceiver()));
         } catch (Exception e) {
             log.error("배송 생성 실패 - orderId={}", order.getId(), e);
@@ -87,18 +93,13 @@ public class OrderService {
         order.complete(deliveryId);
         orderRepository.save(order);
 
-        try {
-            slackNotifyOrderCreated(orderer, supplier, order);
-        } catch (Exception e) {
-            log.error("slack 알림 생성 실패 - orderId={}", order.getId(), e);
-        }
+        slackNotifyOrderCreated(orderer, supplier, order);
 
         return OrderResponse.from(order);
     }
 
     public OrderResponse searchOrder(UUID userId, String role, UUID orderId) {
-        Order order = orderRepository.findByIdAndDeletedAtIsNull(orderId)
-                .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
+        Order order = findActiveOrder(orderId);
 
         // 관리자가 아니면 본인 주문만 조회 가능
         if (!isMaster(role) && !userId.equals(order.getCreatedBy())) {
@@ -122,8 +123,7 @@ public class OrderService {
     }
 
     public OrderResponse searchReceivedOrder(UUID userId, String role, UUID orderId) {
-        Order order = orderRepository.findByIdAndDeletedAtIsNull(orderId)
-                .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
+        Order order = findActiveOrder(orderId);
 
         // 관리자가 아니면 상품 담당자만 가능
         if (!isMaster(role)){
@@ -161,7 +161,6 @@ public class OrderService {
         return PagedResponse.from(orders.map(OrderResponse::from));
     }
 
-
     public OrderResponse updateOrder(UUID userId, String role, UUID orderId, UpdateOrderRequest request) {
         Order order = findActiveOrder(orderId);
 
@@ -175,11 +174,10 @@ public class OrderService {
         }
         validateDeliveryReady(order);
 
-        ProductInfo product = companyClient.getProduct(order.getProductId());
-        CompanyInfo supplier = companyClient.getSupplyCompany(product.supplierCompanyId());
+        CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
 
         // 1. 재고 조정
-        adjustStock(order.getId(), supplier, product, order.getQuantity(), request.getQuantity());
+        adjustStock(order.getId(), supplier, order.getProductId(), order.getQuantity(), request.getQuantity());
 
         // 2. 배송 수정, 실패하면 재고 조정을 되돌림
         try {
@@ -189,7 +187,7 @@ public class OrderService {
         } catch (Exception e) {
             log.error("배송 수정 실패 - orderId={}", order.getId(), e);
             try {
-                adjustStock(order.getId(), supplier, product, request.getQuantity(), order.getQuantity());
+                adjustStock(order.getId(), supplier, order.getProductId(), request.getQuantity(), order.getQuantity());
             } catch (Exception ex) {
                 log.error("배송 수정 실패 후 재고 보상 실패 - orderId={}", order.getId(), ex);
             }
@@ -204,23 +202,24 @@ public class OrderService {
     public void deleteOrder(UUID userId, String role, UUID orderId) {
         Order order = findActiveOrder(orderId);
 
-        CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
-
-        if (!isMaster(role)
-                && !userId.equals(order.getCreatedBy())
-                && !userId.equals(supplier.managerId())) {
-            throw new BaseException(ErrorCode.ORDER_DELETE_DENIED);
+        CompanyInfo supplier = null;
+        if (!isMaster(role) && !userId.equals(order.getCreatedBy())) {
+            supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
+            if (!userId.equals(supplier.managerId())) {
+                throw new BaseException(ErrorCode.ORDER_DELETE_DENIED);
+            }
         }
 
         // 재고 부족 등으로 이미 취소된 주문은 재고와 배송 처리 없이 삭제만
         if (order.isModifiable()) {
             validateDeliveryReady(order);
-            ProductInfo product = companyClient.getProduct(order.getProductId());
-
             deliveryClient.cancelDelivery(order.getDeliveryId());
             // 배송은 이미 취소됐으므로 재고 복구가 실패해도 주문은 취소 처리하고 기록을 남김
             try {
-                hubClient.increaseStock(supplier.hubId(), product.productId(), order.getQuantity(), order.getId());
+                if (supplier == null) {
+                    supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
+                }
+                hubClient.increaseStock(supplier.hubId(), order.getProductId(), order.getQuantity(), order.getId());
             } catch (Exception e) {
                 log.error("주문 취소 후 재고 복구 실패 - orderId={}", order.getId(), e);
             }
@@ -287,13 +286,13 @@ public class OrderService {
         }
     }
 
-    private void adjustStock(UUID orderId, CompanyInfo supplier, ProductInfo product, int quantity, int updateQuantity) {
+    private void adjustStock(UUID orderId, CompanyInfo supplier, UUID productId, int quantity, int updateQuantity) {
         int diff = updateQuantity - quantity;
-        if (diff > 0 && !hubClient.decreaseStock(supplier.hubId(), product.productId(), diff, orderId)) {
+        if (diff > 0 && !hubClient.decreaseStock(supplier.hubId(), productId, diff, orderId)) {
             throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
         }
         if (diff < 0) {
-            hubClient.increaseStock(supplier.hubId(), product.productId(), -diff, orderId);
+            hubClient.increaseStock(supplier.hubId(), productId, -diff, orderId);
         }
     }
 }

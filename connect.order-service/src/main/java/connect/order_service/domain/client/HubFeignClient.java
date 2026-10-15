@@ -1,7 +1,7 @@
 package connect.order_service.domain.client;
 
 import connect.order_service.domain.client.clientInterface.HubClient;
-import org.springframework.cloud.openfeign.FeignClient;
+import connect.order_service.domain.client.dto.HubInfo;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -27,5 +27,13 @@ public class HubFeignClient implements HubClient {
     @Override
     public synchronized void increaseStock(UUID hubId, UUID productId, int quantity, UUID orderId) {
         stock.merge(productId, quantity, Integer::sum);
+    }
+
+    @Override
+    public HubInfo getHub(UUID hubId) {
+        return new HubInfo(
+                hubId,
+                "hubName",
+                "address");
     }
 }

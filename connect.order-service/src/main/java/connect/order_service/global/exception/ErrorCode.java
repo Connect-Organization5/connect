@@ -22,7 +22,7 @@ public enum ErrorCode {
     ORDER_DELIVERY_STARTED(HttpStatus.CONFLICT, "배송이 시작된 주문은 수정/취소할 수 없습니다."),
     OUT_OF_STOCK_FOR_UPDATE(HttpStatus.CONFLICT, "재고가 부족하여 주문을 수정할 수 없습니다."),
     DELIVERY_UPDATE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "배송 수정에 실패했습니다."),
-    ;
+    AFFILIATION_NOT_FOUND(HttpStatus.NOT_FOUND, "소속을 찾을 수 없습니다.");
 
 
     private final HttpStatus status;
