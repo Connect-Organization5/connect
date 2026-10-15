@@ -109,4 +109,20 @@ public class CompanyService {
 
         return CompanyResponse.from(company);
     }
+
+    // 업체 삭제
+    @Transactional
+    public void deleteCompany(UUID companyId, UUID userId, String userRole, String affiliationType) {
+        Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
+                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+
+        if (!ROLE_MASTER.equals(userRole)
+                && (!AFFILIATION_COMPANY.equals(affiliationType) || !company.getUserId().equals(userId))) {
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
+        }
+
+        company.delete(userId);
+
+        // TODO: product-service 연동 방식 확정 후 업체 삭제 시 상품 처리
+    }
 }

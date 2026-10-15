@@ -51,4 +51,8 @@ public class Company extends BaseEntity {
         this.name = name;
         this.address = address;
     }
+
+    public void delete(UUID deletedBy) {
+        softDelete(deletedBy);
+    }
 }

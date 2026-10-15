@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -78,5 +79,17 @@ public class CompanyController {
 
         CompanyResponse response = companyService.updateCompany(companyId, userId, userRole, affiliationType, request);
         return ResponseEntity.ok(ApiResponse.ok("업체가 수정되었습니다.", response));
+    }
+
+    // 업체 삭제
+    @DeleteMapping("/{companyId}")
+    public ResponseEntity<ApiResponse<Void>> deleteCompany(
+            @PathVariable UUID companyId,
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @RequestHeader(USER_ROLE_HEADER) String userRole,
+            @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType) {
+
+        companyService.deleteCompany(companyId, userId, userRole, affiliationType);
+        return ResponseEntity.ok(ApiResponse.ok("업체가 삭제되었습니다.", null));
     }
 }
