@@ -176,4 +176,77 @@ class ProductServiceTest {
         assertThat(product.getDeletedBy()).isEqualTo(ownerId);
         verify(productRepository, never()).delete(any());
     }
+
+    @Test
+    void 업체_관리자가_아니면_상품을_수정할_수_없다() {
+        given(company.getUserId()).willReturn(ownerId);
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+        assertThatThrownBy(() -> productService.updateProduct(
+                companyId, productId, new ProductUpdateRequest("배", null, new BigDecimal("2000")), UUID.randomUUID(), "USER"))
+                .isInstanceOf(BaseException.class)
+                .hasMessage(ErrorCode.FORBIDDEN.getMessage());
+        // 권한 검증에서 막히므로 상품 조회까지 가지 않는다
+        verify(productRepository, never()).findByIdAndCompany_IdAndDeletedAtIsNull(any(), any());
+    }
+
+    @Test
+    void 업체_관리자가_아니면_상품을_삭제할_수_없다() {
+        given(company.getUserId()).willReturn(ownerId);
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+        assertThatThrownBy(() -> productService.deleteProduct(companyId, productId, UUID.randomUUID(), "USER"))
+                .isInstanceOf(BaseException.class)
+                .hasMessage(ErrorCode.FORBIDDEN.getMessage());
+        verify(productRepository, never()).findByIdAndCompany_IdAndDeletedAtIsNull(any(), any());
+    }
+
+    @Test
+    void 존재하지_않는_상품은_수정할_수_없다() {
+        given(company.getUserId()).willReturn(ownerId);
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+        given(productRepository.findByIdAndCompany_IdAndDeletedAtIsNull(productId, companyId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productService.updateProduct(
+                companyId, productId, new ProductUpdateRequest("배", null, new BigDecimal("2000")), ownerId, "USER"))
+                .isInstanceOf(BaseException.class)
+                .hasMessage(ErrorCode.PRODUCT_NOT_FOUND.getMessage());
+    }
+
+    @Test
+    void 존재하지_않는_상품은_삭제할_수_없다() {
+        given(company.getUserId()).willReturn(ownerId);
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+        given(productRepository.findByIdAndCompany_IdAndDeletedAtIsNull(productId, companyId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productService.deleteProduct(companyId, productId, ownerId, "USER"))
+                .isInstanceOf(BaseException.class)
+                .hasMessage(ErrorCode.PRODUCT_NOT_FOUND.getMessage());
+    }
+
+    @Test
+    void MASTER는_소유자가_아니어도_상품을_수정할_수_있다() {
+        Product product = savedProduct();
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+        given(productRepository.findByIdAndCompany_IdAndDeletedAtIsNull(productId, companyId)).willReturn(Optional.of(product));
+
+        ProductResponse response = productService.updateProduct(
+                companyId, productId, new ProductUpdateRequest("배", "달콤한 배", new BigDecimal("2000")), UUID.randomUUID(), "MASTER");
+
+        assertThat(response.name()).isEqualTo("배");
+        assertThat(product.getPrice()).isEqualByComparingTo("2000");
+    }
+
+    @Test
+    void MASTER는_소유자가_아니어도_상품을_삭제할_수_있다() {
+        Product product = savedProduct();
+        UUID masterId = UUID.randomUUID();
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+        given(productRepository.findByIdAndCompany_IdAndDeletedAtIsNull(productId, companyId)).willReturn(Optional.of(product));
+
+        productService.deleteProduct(companyId, productId, masterId, "MASTER");
+
+        assertThat(product.getDeletedAt()).isNotNull();
+        assertThat(product.getDeletedBy()).isEqualTo(masterId);
+    }
 }
