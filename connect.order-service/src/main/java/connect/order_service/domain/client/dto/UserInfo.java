@@ -5,7 +5,6 @@ import java.util.UUID;
 
 public record UserInfo (
         UUID userId,
-        UUID companyId,
         String slackId
 ){
 

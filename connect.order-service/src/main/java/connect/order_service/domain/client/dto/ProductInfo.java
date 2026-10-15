@@ -4,8 +4,7 @@ import java.util.UUID;
 
 public record ProductInfo (
         UUID productId,
-        UUID supplierCompanyId,
-        UUID hubId
+        UUID supplierCompanyId
 ){
 
 }

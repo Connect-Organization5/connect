@@ -6,6 +6,7 @@ import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderResponse;
 import connect.order_service.domain.dto.UpdateOrderRequest;
 import connect.order_service.domain.entity.Order;
+import connect.order_service.domain.entity.OrderStatus;
 import connect.order_service.domain.repository.OrderRepository;
 import connect.order_service.global.dto.PagedResponse;
 import connect.order_service.global.exception.BaseException;
@@ -28,18 +29,18 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final UserClient userClient;
     private final CompanyClient companyClient;
-    private final ProductClient productClient;
     private final HubClient hubClient;
     private final DeliveryClient deliveryClient;
     private final SlackWebhookSender slackWebhookSender;
 
-    private static final String ADMIN_ROLE = "ADMIN";
+    private static final String MASTER_ROLE = "MASTER";
     private static final String MODIFIABLE_DELIVERY_STATUS = "READY";
 
     public OrderResponse createOrder(UUID userId, CreateOrderRequest request) {
         UserInfo orderer = userClient.getUser(userId);
-        CompanyInfo requester = companyClient.getCompany(orderer.companyId());
-        ProductInfo product = productClient.getProduct(request.getProductId());
+        CompanyInfo requester = companyClient.getCompany(userId);
+        ProductInfo product = companyClient.getProduct(request.getProductId());
+        CompanyInfo supplier = companyClient.getSupplyCompany(product.supplierCompanyId());
 
         Order order = orderRepository.save(Order.builder()
                 .requesterCompanyId(requester.companyId())
@@ -53,7 +54,7 @@ public class OrderService {
         boolean decreased;
         try {
             decreased = hubClient.decreaseStock(
-                    product.hubId(), product.productId(), request.getQuantity(), order.getId());
+                    supplier.hubId(), product.productId(), request.getQuantity(), order.getId());
         } catch (Exception e) {
             log.error("재고 차감 실패 - orderId={}", order.getId(), e);
             fail(order);
@@ -68,14 +69,14 @@ public class OrderService {
         try {
             deliveryId = deliveryClient.createDelivery(new DeliveryCreateRequest(
                     order.getId(),
-                    product.hubId(),        // 출발 허브: 상품이 있는 허브
+                    supplier.hubId(),        // 출발 허브: 상품이 있는 허브
                     requester.hubId(),      // 도착 허브: 요청 업체의 관리 허브
                     requester.address(),    // 배송지: 요청 업체 주소
                     order.getReceiver()));
         } catch (Exception e) {
             log.error("배송 생성 실패 - orderId={}", order.getId(), e);
             try {
-                hubClient.increaseStock(product.hubId(), product.productId(), request.getQuantity(), order.getId());
+                hubClient.increaseStock(supplier.hubId(), product.productId(), request.getQuantity(), order.getId());
             } catch (Exception ex) {
                 log.error("배송 생성 실패 후 재고 보상 실패 - orderId={}", order.getId(), ex);
             }
@@ -86,7 +87,11 @@ public class OrderService {
         order.complete(deliveryId);
         orderRepository.save(order);
 
-        slackNotifyOrderCreated(orderer, order);
+        try {
+            slackNotifyOrderCreated(orderer, supplier, order);
+        } catch (Exception e) {
+            log.error("slack 알림 생성 실패 - orderId={}", order.getId(), e);
+        }
 
         return OrderResponse.from(order);
     }
@@ -96,7 +101,7 @@ public class OrderService {
                 .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
 
         // 관리자가 아니면 본인 주문만 조회 가능
-        if (!isAdmin(role) && !userId.equals(order.getCreatedBy())) {
+        if (!isMaster(role) && !userId.equals(order.getCreatedBy())) {
             throw new BaseException(ErrorCode.ORDER_ACCESS_DENIED);
         }
         return OrderResponse.from(order);
@@ -109,25 +114,72 @@ public class OrderService {
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
         // 관리자는 전체, 일반 사용자는 본인 주문만 조회 (실패된 주문 포함)
-        Page<Order> orders = isAdmin(role)
+        Page<Order> orders = isMaster(role)
                 ? orderRepository.findAllByDeletedAtIsNull(pageable)
                 : orderRepository.findAllByCreatedByAndDeletedAtIsNull(userId, pageable);
 
         return PagedResponse.from(orders.map(OrderResponse::from));
     }
 
+    public OrderResponse searchReceivedOrder(UUID userId, String role, UUID orderId) {
+        Order order = orderRepository.findByIdAndDeletedAtIsNull(orderId)
+                .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
+
+        // 관리자가 아니면 상품 담당자만 가능
+        if (!isMaster(role)){
+            CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
+            if(!userId.equals(supplier.managerId())) {
+                throw new BaseException(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED);
+            }
+        }
+
+        return OrderResponse.from(order);
+    }
+
+    public PagedResponse<OrderResponse> searchReceivedPageOrders(UUID userId, String role, int page, int size) {
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        // 관리자는 전체, 상품 담당자는 본인 업체가 공급 업체인 주문만 조회
+        if (isMaster(role)) {
+            return PagedResponse.from(orderRepository.findAllByDeletedAtIsNull(pageable)
+                    .map(OrderResponse::from));
+        }
+
+        CompanyInfo company;
+        try {
+            company = companyClient.getCompany(userId);
+        } catch (Exception e) {
+            throw new BaseException(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED);
+        }
+
+        Page<Order> orders = orderRepository
+                .findAllBySupplierCompanyIdAndStatusNotAndDeletedAtIsNull(company.companyId(), OrderStatus.FAILED, pageable);
+
+        return PagedResponse.from(orders.map(OrderResponse::from));
+    }
+
+
     public OrderResponse updateOrder(UUID userId, String role, UUID orderId, UpdateOrderRequest request) {
         Order order = findActiveOrder(orderId);
-        validateOrderOwner(userId, role, order);
+
+        // 관리자가 아니면 본인만 가능
+        if (!isMaster(role) && !userId.equals(order.getCreatedBy())) {
+            throw new BaseException(ErrorCode.ORDER_MODIFY_DENIED);
+        }
+
         if (!order.isModifiable()) {
             throw new BaseException(ErrorCode.ORDER_NOT_MODIFIABLE);
         }
         validateDeliveryReady(order);
 
-        ProductInfo product = productClient.getProduct(order.getProductId());
+        ProductInfo product = companyClient.getProduct(order.getProductId());
+        CompanyInfo supplier = companyClient.getSupplyCompany(product.supplierCompanyId());
 
         // 1. 재고 조정
-        adjustStock(order.getId(), product, order.getQuantity(), request.getQuantity());
+        adjustStock(order.getId(), supplier, product, order.getQuantity(), request.getQuantity());
 
         // 2. 배송 수정, 실패하면 재고 조정을 되돌림
         try {
@@ -137,7 +189,7 @@ public class OrderService {
         } catch (Exception e) {
             log.error("배송 수정 실패 - orderId={}", order.getId(), e);
             try {
-                adjustStock(order.getId(), product, request.getQuantity(), order.getQuantity());
+                adjustStock(order.getId(), supplier, product, request.getQuantity(), order.getQuantity());
             } catch (Exception ex) {
                 log.error("배송 수정 실패 후 재고 보상 실패 - orderId={}", order.getId(), ex);
             }
@@ -151,17 +203,24 @@ public class OrderService {
 
     public void deleteOrder(UUID userId, String role, UUID orderId) {
         Order order = findActiveOrder(orderId);
-        validateOrderOwner(userId, role, order);
+
+        CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
+
+        if (!isMaster(role)
+                && !userId.equals(order.getCreatedBy())
+                && !userId.equals(supplier.managerId())) {
+            throw new BaseException(ErrorCode.ORDER_DELETE_DENIED);
+        }
 
         // 재고 부족 등으로 이미 취소된 주문은 재고와 배송 처리 없이 삭제만
         if (order.isModifiable()) {
             validateDeliveryReady(order);
-            ProductInfo product = productClient.getProduct(order.getProductId());
+            ProductInfo product = companyClient.getProduct(order.getProductId());
 
             deliveryClient.cancelDelivery(order.getDeliveryId());
             // 배송은 이미 취소됐으므로 재고 복구가 실패해도 주문은 취소 처리하고 기록을 남김
             try {
-                hubClient.increaseStock(product.hubId(), product.productId(), order.getQuantity(), order.getId());
+                hubClient.increaseStock(supplier.hubId(), product.productId(), order.getQuantity(), order.getId());
             } catch (Exception e) {
                 log.error("주문 취소 후 재고 복구 실패 - orderId={}", order.getId(), e);
             }
@@ -173,9 +232,8 @@ public class OrderService {
 
     //---------------------------------------------------------
     // 주문자와 공급 업체 담당자를 멘션해서 알림 채널에 발송
-    private void slackNotifyOrderCreated(UserInfo orderer, Order order) {
+    private void slackNotifyOrderCreated(UserInfo orderer, CompanyInfo supplier, Order order) {
         try {
-            CompanyInfo supplier = companyClient.getCompany(order.getSupplierCompanyId());
             UserInfo supplierManager = userClient.getUser(supplier.managerId());
             slackWebhookSender.send(buildOrderCreatedMessage(order, orderer.slackId(), supplierManager.slackId()));
         } catch (Exception e) {
@@ -213,23 +271,13 @@ public class OrderService {
         orderRepository.save(order);
     }
 
-    private boolean isAdmin(String role) {
-        return ADMIN_ROLE.equalsIgnoreCase(role);
+    private boolean isMaster(String role) {
+        return MASTER_ROLE.equalsIgnoreCase(role);
     }
 
     private Order findActiveOrder(UUID orderId) {
         return orderRepository.findByIdAndDeletedAtIsNull(orderId)
                 .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
-    }
-
-    private void validateOrderOwner(UUID userId, String role, Order order) {
-        if (isAdmin(role) || userId.equals(order.getCreatedBy())) {
-            return;
-        }
-        CompanyInfo supplier = companyClient.getCompany(order.getSupplierCompanyId());
-        if (!userId.equals(supplier.managerId())) {
-            throw new BaseException(ErrorCode.ORDER_MODIFY_DENIED);
-        }
     }
 
     private void validateDeliveryReady(Order order) {
@@ -239,13 +287,13 @@ public class OrderService {
         }
     }
 
-    private void adjustStock(UUID orderId, ProductInfo product, int quantity, int updateQuantity) {
+    private void adjustStock(UUID orderId, CompanyInfo supplier, ProductInfo product, int quantity, int updateQuantity) {
         int diff = updateQuantity - quantity;
-        if (diff > 0 && !hubClient.decreaseStock(product.hubId(), product.productId(), diff, orderId)) {
+        if (diff > 0 && !hubClient.decreaseStock(supplier.hubId(), product.productId(), diff, orderId)) {
             throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
         }
         if (diff < 0) {
-            hubClient.increaseStock(product.hubId(), product.productId(), -diff, orderId);
+            hubClient.increaseStock(supplier.hubId(), product.productId(), -diff, orderId);
         }
     }
 }

@@ -14,7 +14,6 @@ public class UserFeignClient implements UserClient {
     public UserInfo getUser(UUID userId) {
         return new UserInfo(
                 userId,
-                UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001"),
-                "SlackMemberId");      // 테스트할 때 본인 Slack 멤버 ID로 바꾸면 멘션 확인 가능
+                "aa");      // 테스트할 때 본인 Slack 멤버 ID로 바꾸면 멘션 확인 가능
     }
 }

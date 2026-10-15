@@ -52,6 +52,27 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.ok("주문 목록 조회에 성공했습니다.", response));
     }
 
+    @GetMapping("/received/{orderId}")
+    public ResponseEntity<ApiResponse<OrderResponse>> getReceivedOrder(
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role,
+            @PathVariable UUID orderId) {
+
+        OrderResponse response = orderService.searchReceivedOrder(userId, role, orderId);
+        return ResponseEntity.ok(ApiResponse.ok("주문 받은 내용 조회에 성공했습니다.", response));
+    }
+
+    @GetMapping("/received")
+    public ResponseEntity<ApiResponse<PagedResponse<OrderResponse>>> getReceivedOrders(
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        PagedResponse<OrderResponse> response = orderService.searchReceivedPageOrders(userId, role, page, size);
+        return ResponseEntity.ok(ApiResponse.ok("주문 받은 목록 조회에 성공했습니다.", response));
+    }
+
     @PutMapping("/{orderId}")
     public ResponseEntity<ApiResponse<OrderResponse>> updateOrder(
             @RequestHeader("X-User-Id") UUID userId,
