@@ -18,6 +18,7 @@ public enum ErrorCode {
 
     // hub
     HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "허브를 찾을 수 없습니다."),
+    ROUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "이동 경로를 찾을 수 없습니다."),
     ;
 
     private final HttpStatus status;
