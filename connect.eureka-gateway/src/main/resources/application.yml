@@ -35,6 +35,11 @@ spring:
               predicates:
                 - Path=/deliveries, /deliveries/**
 
+            - id: auth-service
+              uri: lb://auth-service
+              predicates:
+                - Path=/auth, /auth/**
+
 eureka:
   client:
     service-url:
