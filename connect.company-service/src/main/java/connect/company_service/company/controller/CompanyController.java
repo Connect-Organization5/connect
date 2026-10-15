@@ -8,6 +8,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -41,5 +43,12 @@ public class CompanyController {
         CompanyResponse response = companyService.createCompany(userId, userRole, affiliationType, companyName, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("업체가 생성되었습니다.", response));
+    }
+
+    // 업체 단건 조회
+    @GetMapping("/{companyId}")
+    public ResponseEntity<ApiResponse<CompanyResponse>> getCompany(@PathVariable UUID companyId) {
+        CompanyResponse response = companyService.getCompany(companyId);
+        return ResponseEntity.ok(ApiResponse.ok("업체가 조회되었습니다.", response));
     }
 }

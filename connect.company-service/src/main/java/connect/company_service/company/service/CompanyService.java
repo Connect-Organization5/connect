@@ -52,4 +52,12 @@ public class CompanyService {
                 Company.create(userId, request.hubId(), name, request.address()));
         return CompanyResponse.from(company);
     }
+
+    // 업체 단건 조회
+    @Transactional(readOnly = true)
+    public CompanyResponse getCompany(UUID companyId) {
+        Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
+                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+        return CompanyResponse.from(company);
+    }
 }
