@@ -1,5 +1,6 @@
 package connect.company_service.company.service;
 
+import connect.company_service.client.hub.HubValidator;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -29,6 +30,7 @@ public class CompanyService {
     private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "createdAt");
 
     private final CompanyRepository companyRepository;
+    private final HubValidator hubValidator;
 
     // 업체 생성
     @Transactional
@@ -53,7 +55,8 @@ public class CompanyService {
             throw new BaseException(ErrorCode.COMPANY_ALREADY_EXISTS);
         }
 
-        // TODO: hub-service 연동 후 hubId 존재 여부 검증 추가
+        // 존재하지 않는 Hub면 HUB_NOT_FOUND로 중단되어 저장하지 않는다
+        hubValidator.validateHubExists(request.hubId());
 
         Company company = companyRepository.save(
                 Company.create(userId, request.hubId(), name, request.address()));
@@ -101,7 +104,8 @@ public class CompanyService {
             throw new BaseException(ErrorCode.COMPANY_ALREADY_EXISTS);
         }
 
-        // TODO: hub-service 연동 후 hubId 존재 여부 검증 추가
+        // 존재하지 않는 Hub면 HUB_NOT_FOUND로 중단되어 수정하지 않는다
+        hubValidator.validateHubExists(request.hubId());
 
         company.update(request.hubId(), request.name(), request.address());
 
