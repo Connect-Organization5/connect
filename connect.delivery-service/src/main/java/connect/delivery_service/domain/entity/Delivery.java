@@ -4,7 +4,9 @@ import connect.delivery_service.domain.dto.CreateDeliveryRequest;
 import connect.delivery_service.global.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.SQLRestriction;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity(name = "p_deliveries")
@@ -12,13 +14,17 @@ import java.util.UUID;
 @Builder(access = AccessLevel.PRIVATE)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
+@SQLRestriction("deleted_at IS NULL")
 public class Delivery extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     private UUID orderId;
+
+    @Column(name = "orderer_id", nullable = false, updatable = false)
+    private UUID ordererId;
 
     @Column(nullable = false)
     private UUID deliveryUserId;
@@ -39,10 +45,11 @@ public class Delivery extends BaseEntity {
     @Column(nullable = false)
     private String receiver;
 
-    public static Delivery createDelivery(UUID orderId, UUID deliveryUserId, UUID departureHubId, UUID arrivalHubId,
+    public static Delivery createDelivery(UUID orderId, UUID ordererId, UUID deliveryUserId, UUID departureHubId, UUID arrivalHubId,
                                   String receiver, String deliveryAddress) {
         return Delivery.builder()
                 .orderId(orderId)
+                .ordererId(ordererId)
                 .deliveryUserId(deliveryUserId)
                 .deliveryStatus(DeliveryStatus.HUB_WAITING)
                 .departureHubId(departureHubId)
@@ -80,23 +87,33 @@ public class Delivery extends BaseEntity {
 
     // 담당자 변경
     public void changeDeliveryUserId(UUID deliveryUserId) {
-        if (this.deliveryStatus != DeliveryStatus.HUB_WAITING) {
-            throw new IllegalStateException();
-        }
+        validateDeliveryStatus(DeliveryStatus.HUB_WAITING);
         this.deliveryUserId = deliveryUserId;
     }
 
     // 수령인 변경
     public void changeReceiver(String receiver) {
-        if (this.deliveryStatus != DeliveryStatus.HUB_WAITING) {
-            throw new IllegalStateException();
-        }
+        validateDeliveryStatus(DeliveryStatus.HUB_WAITING);
         this.receiver = receiver;
     }
 
     // 담당자 확인
     public boolean isManagedBy(UUID deliveryUserId) {
         return this.deliveryUserId != null && this.deliveryUserId.equals(deliveryUserId);
+    }
+
+    // 본인 확인
+    public boolean isOrderedBy(UUID userId) {
+        return this.ordererId != null && this.ordererId.equals(userId);
+    }
+
+
+    // 삭제: 끝난 배송(DELIVERED, CANCELED)만 가능
+    public void delete(UUID userId) {
+        if (this.deliveryStatus != DeliveryStatus.DELIVERED && this.deliveryStatus != DeliveryStatus.CANCELED) {
+            throw new IllegalStateException();
+        }
+        softDelete(userId);
     }
 
     private void validateDeliveryStatus(DeliveryStatus expectedStatus) {

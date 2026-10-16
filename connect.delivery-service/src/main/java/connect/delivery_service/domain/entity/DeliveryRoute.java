@@ -1,8 +1,10 @@
 package connect.delivery_service.domain.entity;
 
+import connect.delivery_service.domain.dto.DeliveryRouteResponse;
 import connect.delivery_service.global.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -12,6 +14,7 @@ import java.util.UUID;
 @Builder(access = AccessLevel.PRIVATE)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
+@SQLRestriction("deleted_at IS NULL")
 public class DeliveryRoute extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -34,47 +37,57 @@ public class DeliveryRoute extends BaseEntity {
     private DeliveryRouteStatus deliveryRouteStatus;
 
     @Column(nullable = false, precision = 10, scale = 2)
-    private BigDecimal EstimatedDistance;
+    private BigDecimal estimatedDistance;
 
     @Column(nullable = false)
     private Integer estimatedDuration;
 
     @Column(precision = 10, scale = 2)
-    private BigDecimal ActualDistance;
+    private BigDecimal actualDistance;
 
-    private Integer ActualDuration;
+    private Integer actualDuration;
 
     public static DeliveryRoute createDeliveryRoute(UUID deliveryId, UUID deliveryUserId, UUID departureHubId, UUID arrivalHubId,
-                                               BigDecimal EstimatedDistance, Integer estimatedDuration, BigDecimal ActualDistance, Integer ActualDuration) {
+                                               BigDecimal estimatedDistance, Integer estimatedDuration) {
         return DeliveryRoute.builder()
                 .deliveryId(deliveryId)
                 .deliveryUserId(deliveryUserId)
                 .deliveryRouteStatus(DeliveryRouteStatus.WAITING)
                 .departureHubId(departureHubId)
                 .arrivalHubId(arrivalHubId)
-                .EstimatedDistance(EstimatedDistance)
+                .estimatedDistance(estimatedDistance)
                 .estimatedDuration(estimatedDuration)
-                .estimatedDuration(estimatedDuration)
-                .ActualDistance(ActualDistance)
-                .ActualDuration(ActualDuration)
+                .actualDistance(null)
+                .actualDuration(null)
                 .build();
     }
 
-    // 배송 상태 변경
     public void startMoving(){
         validateDeliveryRouteStatus(DeliveryRouteStatus.WAITING);
         this.deliveryRouteStatus = DeliveryRouteStatus.MOVING;
     }
 
-    public void complete(){
+    public void complete(BigDecimal actualDistance, Integer actualDuration) {
         validateDeliveryRouteStatus(DeliveryRouteStatus.MOVING);
         this.deliveryRouteStatus = DeliveryRouteStatus.ARRIVED;
+        this.actualDistance = actualDistance;
+        this.actualDuration = actualDuration;
     }
 
     public void cancel(){
         validateDeliveryRouteStatus(DeliveryRouteStatus.WAITING);
         this.deliveryRouteStatus = DeliveryRouteStatus.CANCELED;
     }
+
+    public void changeDeliveryUserId(UUID deliveryUserId) {
+        validateDeliveryRouteStatus(DeliveryRouteStatus.WAITING);
+        this.deliveryUserId = deliveryUserId;
+    }
+
+    public void delete(UUID userId) {
+        softDelete(userId);
+    }
+
 
     private void validateDeliveryRouteStatus(DeliveryRouteStatus expectedStatus) {
         if (this.deliveryRouteStatus != expectedStatus){
