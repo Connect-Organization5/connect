@@ -34,4 +34,25 @@ public class Company extends BaseEntity {
 
     @Column(nullable = false, length = 200)
     private String address;
+
+    private Company(UUID userId, UUID hubId, String name, String address) {
+        this.userId = userId;
+        this.hubId = hubId;
+        this.name = name;
+        this.address = address;
+    }
+
+    public static Company create(UUID userId, UUID hubId, String name, String address) {
+        return new Company(userId, hubId, name, address);
+    }
+
+    public void update(UUID hubId, String name, String address) {
+        this.hubId = hubId;
+        this.name = name;
+        this.address = address;
+    }
+
+    public void delete(UUID deletedBy) {
+        softDelete(deletedBy);
+    }
 }
