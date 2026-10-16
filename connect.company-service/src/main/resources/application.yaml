@@ -6,7 +6,7 @@ spring:
     name: company-service
 
   datasource:
-    url: ${COMPANY_DB_URL:jdbc:postgresql://localhost:5432/connect_company}
+    url: ${COMPANY_DB_URL:jdbc:postgresql://localhost:5432/connect_db}
     username: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
 
