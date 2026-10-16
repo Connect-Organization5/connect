@@ -1,5 +1,7 @@
 package connect.company_service.product.service;
 
+import connect.company_service.client.hub.HubClient;
+import connect.company_service.client.hub.dto.StockDeleteRequest;
 import connect.company_service.company.entity.Company;
 import connect.company_service.company.repository.CompanyRepository;
 import connect.company_service.global.dto.PagedResponse;
@@ -13,6 +15,7 @@ import connect.company_service.product.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -29,6 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -42,6 +46,10 @@ class ProductServiceTest {
 
     @Mock
     private CompanyRepository companyRepository;
+
+    // 실제 Hub Service를 호출하지 않도록 Mock 처리
+    @Mock
+    private HubClient hubClient;
 
     @InjectMocks
     private ProductService productService;
@@ -175,6 +183,36 @@ class ProductServiceTest {
         assertThat(product.getDeletedAt()).isNotNull();
         assertThat(product.getDeletedBy()).isEqualTo(ownerId);
         verify(productRepository, never()).delete(any());
+
+        // 삭제한 상품 ID 하나와 요청 사용자 ID로 Hub 재고 삭제를 한 번 호출한다
+        ArgumentCaptor<StockDeleteRequest> captor = ArgumentCaptor.forClass(StockDeleteRequest.class);
+        verify(hubClient).deleteStocks(eq(ownerId), captor.capture());
+        assertThat(captor.getValue().productIds()).containsExactly(productId);
+    }
+
+    @Test
+    void Hub_재고_삭제가_실패하면_예외를_전파한다() {
+        Product product = savedProduct();
+        given(company.getUserId()).willReturn(ownerId);
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+        given(productRepository.findByIdAndCompany_IdAndDeletedAtIsNull(productId, companyId)).willReturn(Optional.of(product));
+        given(hubClient.deleteStocks(eq(ownerId), any(StockDeleteRequest.class)))
+                .willThrow(new RuntimeException("Hub Service 오류"));
+
+        // 예외를 삼키지 않고 전파해야 @Transactional이 상품 soft delete를 롤백한다
+        assertThatThrownBy(() -> productService.deleteProduct(companyId, productId, ownerId, "USER"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Hub Service 오류");
+    }
+
+    @Test
+    void 없는_업체의_상품은_삭제할_수_없다() {
+        given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productService.deleteProduct(companyId, productId, ownerId, "USER"))
+                .isInstanceOf(BaseException.class)
+                .hasMessage(ErrorCode.COMPANY_NOT_FOUND.getMessage());
+        verify(hubClient, never()).deleteStocks(any(), any());
     }
 
     @Test
@@ -199,6 +237,7 @@ class ProductServiceTest {
                 .isInstanceOf(BaseException.class)
                 .hasMessage(ErrorCode.FORBIDDEN.getMessage());
         verify(productRepository, never()).findByIdAndCompany_IdAndDeletedAtIsNull(any(), any());
+        verify(hubClient, never()).deleteStocks(any(), any());
     }
 
     @Test
@@ -222,6 +261,7 @@ class ProductServiceTest {
         assertThatThrownBy(() -> productService.deleteProduct(companyId, productId, ownerId, "USER"))
                 .isInstanceOf(BaseException.class)
                 .hasMessage(ErrorCode.PRODUCT_NOT_FOUND.getMessage());
+        verify(hubClient, never()).deleteStocks(any(), any());
     }
 
     @Test

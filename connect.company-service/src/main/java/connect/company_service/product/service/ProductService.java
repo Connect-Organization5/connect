@@ -1,5 +1,7 @@
 package connect.company_service.product.service;
 
+import connect.company_service.client.hub.HubClient;
+import connect.company_service.client.hub.dto.StockDeleteRequest;
 import connect.company_service.company.entity.Company;
 import connect.company_service.company.repository.CompanyRepository;
 import connect.company_service.global.dto.PagedResponse;
@@ -30,6 +32,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CompanyRepository companyRepository;
+    private final HubClient hubClient;
 
     @Transactional
     public ProductResponse createProduct(UUID companyId, ProductCreateRequest request, UUID userId, String role) {
@@ -74,6 +77,9 @@ public class ProductService {
 
         Product product = getProductInCompany(companyId, productId);
         product.delete(userId);
+
+        // 해당 상품의 Hub 재고도 soft delete. 실패 시 예외를 그대로 전파해 상품 soft delete도 롤백된다
+        hubClient.deleteStocks(userId, new StockDeleteRequest(List.of(productId)));
     }
 
     // 업체 삭제 시 호출. 업체 존재·권한 검증은 호출하는 CompanyService.deleteCompany()가 담당한다
