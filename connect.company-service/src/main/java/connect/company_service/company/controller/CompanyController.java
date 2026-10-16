@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/companies")
+@RequestMapping("/companies")
 @RequiredArgsConstructor
 public class CompanyController {
 
