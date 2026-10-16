@@ -21,6 +21,9 @@ public enum ErrorCode {
 
     // product
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다."),
+
+    // hub
+    HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "허브를 찾을 수 없습니다."),
     ;
 
     private final HttpStatus status;
