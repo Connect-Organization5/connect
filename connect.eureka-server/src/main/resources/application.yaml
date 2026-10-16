@@ -8,11 +8,14 @@ server:
 eureka:
   client:
     register-with-eureka: false
+
     fetch-registry: false
+
+    ## eureka Client 와 eureka server 와 통신하기 위해 사용되는 url
     service-url:
       defaultZone: http://localhost:8761/eureka/
+
   instance:
     hostname: localhost
 
 
-## eureka Client 와 eureka server 와 통신하기 위해 사용되는 url

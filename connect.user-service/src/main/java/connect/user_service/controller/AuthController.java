@@ -12,12 +12,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-public class UserController {
+public class AuthController {
 
     private final AuthService authService;
 
     @GetMapping("/auth/login")
-    public ResponseEntity<?> signIn(@RequestParam String username, @RequestParam String password) {
+    public ResponseEntity<?> createAuthToken(@RequestParam String username, @RequestParam String password) {
         return ResponseEntity.ok(new AuthResponse(authService.createAccessToken(username, password)));
     }
 

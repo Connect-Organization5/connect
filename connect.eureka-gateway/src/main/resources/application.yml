@@ -11,12 +11,12 @@ spring:
   cloud:
     gateway:
       server:
-        webmvc:
+        webflux:
           routes:
             - id: user-service
               uri: lb://user-service
               predicates:
-                - Path=/auth/login, /auth/signup, /auth/**, /users/**
+                - Path=/auth/**, /users/**
 
             - id: hub-service
               uri: lb://hub-service
