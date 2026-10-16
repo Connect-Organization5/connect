@@ -72,12 +72,12 @@ public class CompanyController {
     @PutMapping("/{companyId}")
     public ResponseEntity<ApiResponse<CompanyResponse>> updateCompany(
             @PathVariable UUID companyId,
-            @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String userRole,
             @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType,
+            @RequestHeader(value = COMPANY_NAME_HEADER, required = false) String companyName,
             @Valid @RequestBody UpdateCompanyRequest request) {
 
-        CompanyResponse response = companyService.updateCompany(companyId, userId, userRole, affiliationType, request);
+        CompanyResponse response = companyService.updateCompany(companyId, userRole, affiliationType, companyName, request);
         return ResponseEntity.ok(ApiResponse.ok("업체가 수정되었습니다.", response));
     }
 
@@ -87,9 +87,10 @@ public class CompanyController {
             @PathVariable UUID companyId,
             @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String userRole,
-            @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType) {
+            @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType,
+            @RequestHeader(value = COMPANY_NAME_HEADER, required = false) String companyName) {
 
-        companyService.deleteCompany(companyId, userId, userRole, affiliationType);
+        companyService.deleteCompany(companyId, userId, userRole, affiliationType, companyName);
         return ResponseEntity.ok(ApiResponse.ok("업체가 삭제되었습니다.", null));
     }
 }

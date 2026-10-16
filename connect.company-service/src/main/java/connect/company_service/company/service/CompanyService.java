@@ -45,8 +45,7 @@ public class CompanyService {
                 throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
             }
 
-            // TODO: Gateway와 인코딩 방식 확정 후 변경
-            name = URLDecoder.decode(companyName, StandardCharsets.UTF_8);
+            name = decodeCompanyName(companyName);
         }
 
         if (companyRepository.existsByNameAndDeletedAtIsNull(name)) {
@@ -86,15 +85,12 @@ public class CompanyService {
 
     // 업체 수정
     @Transactional
-    public CompanyResponse updateCompany(UUID companyId, UUID userId, String userRole, String affiliationType,
-                                         UpdateCompanyRequest request) {
+    public CompanyResponse updateCompany(UUID companyId, String userRole, String affiliationType,
+                                         String companyName, UpdateCompanyRequest request) {
         Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
                 .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
 
-        if (!ROLE_MASTER.equals(userRole)
-                && (!AFFILIATION_COMPANY.equals(affiliationType) || !company.getUserId().equals(userId))) {
-            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
-        }
+        validateCompanyAccess(company, userRole, affiliationType, companyName);
 
         boolean nameChanged = !company.getName().equals(request.name());
         if (nameChanged && companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
@@ -112,17 +108,31 @@ public class CompanyService {
 
     // 업체 삭제
     @Transactional
-    public void deleteCompany(UUID companyId, UUID userId, String userRole, String affiliationType) {
+    public void deleteCompany(UUID companyId, UUID userId, String userRole, String affiliationType,
+                              String companyName) {
         Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
                 .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
 
-        if (!ROLE_MASTER.equals(userRole)
-                && (!AFFILIATION_COMPANY.equals(affiliationType) || !company.getUserId().equals(userId))) {
-            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
-        }
+        validateCompanyAccess(company, userRole, affiliationType, companyName);
 
         company.delete(userId);
 
         // TODO: product-service 연동 방식 확정 후 업체 삭제 시 상품 처리
+    }
+
+    // MASTER이거나, 해당 업체명으로 가입한 업체 소속 사용자만 허용
+    private void validateCompanyAccess(Company company, String userRole, String affiliationType, String companyName) {
+        if (ROLE_MASTER.equals(userRole)) {
+            return;
+        }
+        if (!AFFILIATION_COMPANY.equals(affiliationType) || companyName == null || companyName.isBlank()
+                || !company.getName().equals(decodeCompanyName(companyName))) {
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
+        }
+    }
+
+    // TODO: Gateway와 인코딩 방식 확정 후 변경
+    private String decodeCompanyName(String companyName) {
+        return URLDecoder.decode(companyName, StandardCharsets.UTF_8);
     }
 }
