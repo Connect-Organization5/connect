@@ -1,13 +1,11 @@
 package connect.company_service;
 
+import connect.company_service.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class CompanyServiceApplicationTests {
+class CompanyServiceApplicationTests extends IntegrationTestSupport {
 
 	@Test
 	void contextLoads() {
 	}
-
 }

@@ -1,0 +1,12 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        hbm2ddl:
+          create_namespaces: true
+
+eureka:
+  client:
+    enabled: false
