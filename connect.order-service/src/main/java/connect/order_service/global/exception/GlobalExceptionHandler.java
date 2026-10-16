@@ -1,6 +1,8 @@
 package connect.order_service.global.exception;
 
 import connect.order_service.global.dto.ApiResponse;
+import feign.FeignException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -35,5 +38,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleMissingHeader(MissingRequestHeaderException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("필수 헤더가 누락되었습니다: " + ex.getHeaderName()));
+    }
+
+    // 다른 서비스(user, company, hub, delivery) 호출 실패
+    @ExceptionHandler(FeignException.class)
+    public ResponseEntity<ApiResponse<Void>> handleFeignException(FeignException e) {
+        log.error("외부 서비스 호출 실패 - status={}, url={}", e.status(), e.request() == null ? "-" : e.request().url(), e);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error("연관 서비스 호출에 실패했습니다. 잠시 후 다시 시도해주세요."));
+    }
+
+    // 처리되지 않은 예외
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
+        log.error("처리되지 않은 예외", e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("서버 내부 오류가 발생했습니다."));
     }
 }

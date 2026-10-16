@@ -1,10 +1,9 @@
 package connect.order_service.domain.client;
 
 import connect.order_service.domain.client.clientInterface.DeliveryClient;
-import connect.order_service.domain.client.dto.DeliveryCreateRequest;
-import connect.order_service.domain.client.dto.DeliveryInfo;
-import connect.order_service.domain.client.dto.DeliveryUpdateRequest;
-import org.springframework.cloud.openfeign.FeignClient;
+import connect.order_service.domain.client.dto.response.DeliveryCreateRequest;
+import connect.order_service.domain.client.dto.response.DeliveryInfo;
+import connect.order_service.domain.client.dto.response.DeliveryUpdateRequest;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;

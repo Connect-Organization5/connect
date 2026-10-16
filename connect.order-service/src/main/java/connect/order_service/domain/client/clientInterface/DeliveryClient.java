@@ -1,8 +1,8 @@
 package connect.order_service.domain.client.clientInterface;
 
-import connect.order_service.domain.client.dto.DeliveryCreateRequest;
-import connect.order_service.domain.client.dto.DeliveryInfo;
-import connect.order_service.domain.client.dto.DeliveryUpdateRequest;
+import connect.order_service.domain.client.dto.response.DeliveryCreateRequest;
+import connect.order_service.domain.client.dto.response.DeliveryInfo;
+import connect.order_service.domain.client.dto.response.DeliveryUpdateRequest;
 
 import java.util.UUID;
 

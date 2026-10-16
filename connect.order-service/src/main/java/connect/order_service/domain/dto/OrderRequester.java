@@ -1,7 +1,7 @@
 package connect.order_service.domain.dto;
 
-import connect.order_service.domain.client.dto.CompanyInfo;
-import connect.order_service.domain.client.dto.HubInfo;
+import connect.order_service.domain.client.dto.response.CompanyInfo;
+import connect.order_service.domain.client.dto.response.HubInfo;
 
 import java.util.UUID;
 
@@ -11,7 +11,7 @@ public record OrderRequester(
         String address
 ) {
     public static OrderRequester from(CompanyInfo company) {
-        return new OrderRequester(company.companyId(), company.hubId(), company.address());
+        return new OrderRequester(company.id(), company.hubId(), company.address());
     }
 
     public static OrderRequester from(HubInfo hub) {

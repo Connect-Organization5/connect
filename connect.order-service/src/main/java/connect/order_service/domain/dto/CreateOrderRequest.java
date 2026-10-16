@@ -10,6 +10,9 @@ import java.util.UUID;
 
 @Getter
 public class CreateOrderRequest {
+    @NotNull(message = "공급 업체 ID는 필수입니다.")
+    private UUID supplierCompanyId;
+
     @NotNull(message = "상품 ID는 필수입니다.")
     private UUID productId;
 
