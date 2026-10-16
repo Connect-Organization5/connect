@@ -32,7 +32,7 @@ public class CompanyController {
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String USER_ROLE_HEADER = "X-User-Role";
     private static final String AFFILIATION_TYPE_HEADER = "X-User-Affiliation-Type";
-    private static final String COMPANY_NAME_HEADER = "X-User-Company-Name";
+    private static final String AFFILIATION_ID_HEADER = "X-User-Affiliation-Id";
 
     private final CompanyService companyService;
 
@@ -42,10 +42,10 @@ public class CompanyController {
             @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String userRole,
             @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType,
-            @RequestHeader(value = COMPANY_NAME_HEADER, required = false) String companyName,
+            @RequestHeader(value = AFFILIATION_ID_HEADER, required = false) UUID affiliationId,
             @Valid @RequestBody CreateCompanyRequest request) {
 
-        CompanyResponse response = companyService.createCompany(userId, userRole, affiliationType, companyName, request);
+        CompanyResponse response = companyService.createCompany(userId, userRole, affiliationType, affiliationId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("업체가 생성되었습니다.", response));
     }
@@ -72,12 +72,12 @@ public class CompanyController {
     @PutMapping("/{companyId}")
     public ResponseEntity<ApiResponse<CompanyResponse>> updateCompany(
             @PathVariable UUID companyId,
-            @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String userRole,
             @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType,
+            @RequestHeader(value = AFFILIATION_ID_HEADER, required = false) UUID affiliationId,
             @Valid @RequestBody UpdateCompanyRequest request) {
 
-        CompanyResponse response = companyService.updateCompany(companyId, userId, userRole, affiliationType, request);
+        CompanyResponse response = companyService.updateCompany(companyId, userRole, affiliationType, affiliationId, request);
         return ResponseEntity.ok(ApiResponse.ok("업체가 수정되었습니다.", response));
     }
 
@@ -87,9 +87,10 @@ public class CompanyController {
             @PathVariable UUID companyId,
             @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String userRole,
-            @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType) {
+            @RequestHeader(value = AFFILIATION_TYPE_HEADER, required = false) String affiliationType,
+            @RequestHeader(value = AFFILIATION_ID_HEADER, required = false) UUID affiliationId) {
 
-        companyService.deleteCompany(companyId, userId, userRole, affiliationType);
+        companyService.deleteCompany(companyId, userId, userRole, affiliationType, affiliationId);
         return ResponseEntity.ok(ApiResponse.ok("업체가 삭제되었습니다.", null));
     }
 }
