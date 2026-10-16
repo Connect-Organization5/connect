@@ -26,6 +26,11 @@ public enum ErrorCode {
     STOCK_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 등록된 허브·상품 재고입니다."),
     STOCK_DELETED(HttpStatus.CONFLICT, "삭제된 재고입니다."),
     STOCK_QUANTITY_OVERFLOW(HttpStatus.CONFLICT, "재고 수량이 허용 범위를 초과합니다."),
+    INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "재고가 부족합니다."),
+    STOCK_REQUEST_CONFLICT(HttpStatus.CONFLICT, "같은 주문 ID로 처리된 기존 요청과 허브·상품·수량이 일치하지 않습니다."),
+    STOCK_ALREADY_RESTORED(HttpStatus.CONFLICT, "이미 복원이 완료된 주문입니다."),
+    DECREASE_HISTORY_NOT_FOUND(HttpStatus.CONFLICT, "복원할 차감 이력이 없습니다."),
+    STOCK_HISTORY_MISMATCH(HttpStatus.CONFLICT, "요청한 허브·상품이 원본 차감 이력의 재고와 일치하지 않습니다."),
     ;
 
     private final HttpStatus status;

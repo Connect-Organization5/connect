@@ -34,4 +34,10 @@ public abstract class BaseEntity {
     private LocalDateTime deletedAt;
 
     private UUID deletedBy;
+
+    // 논리 삭제 표시. 삭제 시각과 삭제자는 호출 측(서비스)이 명시적으로 전달한다. 공개 setter는 두지 않는다.
+    protected void markDeleted(UUID userId, LocalDateTime deletedAt) {
+        this.deletedBy = userId;
+        this.deletedAt = deletedAt;
+    }
 }

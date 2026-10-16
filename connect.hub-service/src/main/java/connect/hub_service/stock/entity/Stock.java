@@ -17,6 +17,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -51,6 +52,26 @@ public class Stock extends BaseEntity {
         this.hub = hub;
         this.productId = productId;
         this.quantity = quantity;
+    }
+
+    // 차감: 수량을 줄인다. 호출 측이 부족 여부를 먼저 확인하며, 여기서는 음수 재고를 막는 방어만 한다.
+    public void decrease(int amount) {
+        if (amount < 1) {
+            throw new IllegalArgumentException("차감 수량은 1 이상이어야 합니다.");
+        }
+        if (this.quantity < amount) {
+            throw new IllegalStateException("재고가 부족합니다.");
+        }
+        this.quantity -= amount;
+    }
+
+    // 논리 삭제: 수량은 그대로 두고 삭제 시각·삭제자만 기록한다. 이미 삭제된 재고는 바꾸지 않고 false를 반환한다.
+    public boolean delete(UUID userId, LocalDateTime deletedAt) {
+        if (getDeletedAt() != null) {
+            return false;
+        }
+        markDeleted(userId, deletedAt);
+        return true;
     }
 
     // 입고: 수량을 늘린다. int 범위를 넘으면 ArithmeticException (호출 측에서 도메인 오류로 변환)
