@@ -4,11 +4,14 @@ import connect.company_service.global.dto.PagedResponse;
 import connect.company_service.product.dto.ProductCreateRequest;
 import connect.company_service.product.dto.ProductResponse;
 import connect.company_service.product.dto.ProductUpdateRequest;
+import connect.company_service.product.entity.Product;
 import connect.company_service.product.service.ProductService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.data.core.PropertyReferenceException;
+import org.springframework.data.core.TypeInformation;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
@@ -148,6 +151,17 @@ class ProductControllerTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(productService);
+    }
+
+    @Test
+    void 존재하지_않는_필드로_정렬하면_400을_반환한다() throws Exception {
+        // 실제로는 Repository가 정렬 쿼리를 만들 때 던지는 예외. Service Mock으로 재현한다
+        given(productService.getProducts(eq(companyId), eq(null), any(Pageable.class)))
+                .willThrow(new PropertyReferenceException("foo", TypeInformation.of(Product.class), List.of()));
+
+        mockMvc.perform(get(baseUrl()).param("sort", "foo"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
     }
 
     @Test

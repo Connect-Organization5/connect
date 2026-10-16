@@ -3,6 +3,7 @@ package connect.company_service.global.exception;
 import connect.company_service.global.dto.ErrorResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
+import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -44,8 +45,9 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(ErrorCode.VALIDATION_FAILED, message));
     }
 
-    // 요청 JSON 형식이 깨졌거나 본문이 없을 때
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    // 요청 JSON 형식이 깨졌거나 본문이 없을 때, 존재하지 않는 필드로 정렬을 요청했을 때(?sort=foo)
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
+            PropertyReferenceException.class})
     public ResponseEntity<ErrorResponse> handleInvalidInput(Exception e) {
         return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
                 .body(ErrorResponse.of(ErrorCode.INVALID_INPUT));
