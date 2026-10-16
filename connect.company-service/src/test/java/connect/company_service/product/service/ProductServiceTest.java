@@ -108,7 +108,7 @@ class ProductServiceTest {
         assertThatThrownBy(() -> productService.createProduct(
                 companyId, new ProductCreateRequest("사과", null, new BigDecimal("1000")), UUID.randomUUID(), "USER"))
                 .isInstanceOf(BaseException.class)
-                .hasMessage(ErrorCode.FORBIDDEN.getMessage());
+                .hasMessage(ErrorCode.COMPANY_ACCESS_DENIED.getMessage());
         verify(productRepository, never()).save(any());
     }
 
@@ -223,7 +223,7 @@ class ProductServiceTest {
         assertThatThrownBy(() -> productService.updateProduct(
                 companyId, productId, new ProductUpdateRequest("배", null, new BigDecimal("2000")), UUID.randomUUID(), "USER"))
                 .isInstanceOf(BaseException.class)
-                .hasMessage(ErrorCode.FORBIDDEN.getMessage());
+                .hasMessage(ErrorCode.COMPANY_ACCESS_DENIED.getMessage());
         // 권한 검증에서 막히므로 상품 조회까지 가지 않는다
         verify(productRepository, never()).findByIdAndCompany_IdAndDeletedAtIsNull(any(), any());
     }
@@ -235,7 +235,7 @@ class ProductServiceTest {
 
         assertThatThrownBy(() -> productService.deleteProduct(companyId, productId, UUID.randomUUID(), "USER"))
                 .isInstanceOf(BaseException.class)
-                .hasMessage(ErrorCode.FORBIDDEN.getMessage());
+                .hasMessage(ErrorCode.COMPANY_ACCESS_DENIED.getMessage());
         verify(productRepository, never()).findByIdAndCompany_IdAndDeletedAtIsNull(any(), any());
         verify(hubClient, never()).deleteStocks(any(), any());
     }

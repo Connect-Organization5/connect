@@ -110,7 +110,7 @@ public class ProductService {
             return;
         }
         if (userId == null || !userId.equals(company.getUserId())) {
-            throw new BaseException(ErrorCode.FORBIDDEN);
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
         }
     }
 }
