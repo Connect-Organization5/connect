@@ -15,8 +15,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @Service
@@ -33,29 +31,17 @@ public class CompanyService {
     // 업체 생성
     @Transactional
     public CompanyResponse createCompany(UUID userId, String userRole, String affiliationType,
-                                         String companyName, CreateCompanyRequest request) {
-        String name;
-        if (ROLE_MASTER.equals(userRole)) {
-            if (request.name() == null || request.name().isBlank()) {
-                throw new BaseException(ErrorCode.VALIDATION_FAILED);
-            }
-            name = request.name();
-        } else {
-            if (!AFFILIATION_COMPANY.equals(affiliationType) || companyName == null || companyName.isBlank()) {
-                throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
-            }
+                                         UUID affiliationId, CreateCompanyRequest request) {
+        validateCreateAccess(userRole, affiliationType, affiliationId);
 
-            name = decodeCompanyName(companyName);
-        }
-
-        if (companyRepository.existsByNameAndDeletedAtIsNull(name)) {
+        if (companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
             throw new BaseException(ErrorCode.COMPANY_ALREADY_EXISTS);
         }
 
         // TODO: hub-service 연동 후 hubId 존재 여부 검증 추가
 
         Company company = companyRepository.save(
-                Company.create(userId, request.hubId(), name, request.address()));
+                Company.create(userId, request.hubId(), request.name(), request.address()));
         return CompanyResponse.from(company);
     }
 
@@ -85,10 +71,10 @@ public class CompanyService {
     // 업체 수정
     @Transactional
     public CompanyResponse updateCompany(UUID companyId, String userRole, String affiliationType,
-                                         String companyName, UpdateCompanyRequest request) {
+                                         UUID affiliationId, UpdateCompanyRequest request) {
         Company company = findActiveCompany(companyId);
 
-        validateCompanyAccess(company, userRole, affiliationType, companyName);
+        validateCompanyAccess(company, userRole, affiliationType, affiliationId);
 
         boolean nameChanged = !company.getName().equals(request.name());
         if (nameChanged && companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
@@ -99,18 +85,16 @@ public class CompanyService {
 
         company.update(request.hubId(), request.name(), request.address());
 
-        // TODO: user-service 연동 방식 확정 후 업체명 변경 시 user-service에 알림
-
         return CompanyResponse.from(company);
     }
 
     // 업체 삭제
     @Transactional
     public void deleteCompany(UUID companyId, UUID userId, String userRole, String affiliationType,
-                              String companyName) {
+                              UUID affiliationId) {
         Company company = findActiveCompany(companyId);
 
-        validateCompanyAccess(company, userRole, affiliationType, companyName);
+        validateCompanyAccess(company, userRole, affiliationType, affiliationId);
 
         company.delete(userId);
 
@@ -123,19 +107,23 @@ public class CompanyService {
                 .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
     }
 
-    // MASTER이거나, 해당 업체명으로 가입한 업체 소속 사용자만 허용
-    private void validateCompanyAccess(Company company, String userRole, String affiliationType, String companyName) {
+    // 업체 생성 권한 검증 (MASTER이거나 아직 소속 업체가 없는 업체 관리자)
+    private void validateCreateAccess(String userRole, String affiliationType, UUID affiliationId) {
         if (ROLE_MASTER.equals(userRole)) {
             return;
         }
-        if (!AFFILIATION_COMPANY.equals(affiliationType) || companyName == null || companyName.isBlank()
-                || !company.getName().equals(decodeCompanyName(companyName))) {
+        if (!AFFILIATION_COMPANY.equals(affiliationType) || affiliationId != null) {
             throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
         }
     }
 
-    // TODO: Gateway와 인코딩 방식 확정 후 변경
-    private String decodeCompanyName(String companyName) {
-        return URLDecoder.decode(companyName, StandardCharsets.UTF_8);
+    // 업체 수정 및 삭제 권한 검증 (MASTER, 해당 업체에 소속된 사용자)
+    private void validateCompanyAccess(Company company, String userRole, String affiliationType, UUID affiliationId) {
+        if (ROLE_MASTER.equals(userRole)) {
+            return;
+        }
+        if (!AFFILIATION_COMPANY.equals(affiliationType) || !company.getId().equals(affiliationId)) {
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
+        }
     }
 }
