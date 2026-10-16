@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,4 +19,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     // 특정 Company 내부에서 상품명 부분 일치 검색
     Page<Product> findByCompany_IdAndNameContainingAndDeletedAtIsNull(UUID companyId, String name, Pageable pageable);
+
+    // 업체 삭제 시 일괄 soft delete 대상: 특정 Company의 삭제되지 않은 상품 전체
+    List<Product> findAllByCompany_IdAndDeletedAtIsNull(UUID companyId);
 }

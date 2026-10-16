@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -73,6 +74,17 @@ public class ProductService {
 
         Product product = getProductInCompany(companyId, productId);
         product.delete(userId);
+    }
+
+    // 업체 삭제 시 호출. 업체 존재·권한 검증은 호출하는 CompanyService.deleteCompany()가 담당한다
+    // 변경 감지(Dirty Checking)로 soft delete하고, 삭제한 상품 ID 목록을 반환한다 (없으면 빈 목록)
+    @Transactional
+    public List<UUID> deleteProductsByCompany(UUID companyId, UUID deletedBy) {
+        List<Product> products = productRepository.findAllByCompany_IdAndDeletedAtIsNull(companyId);
+        products.forEach(product -> product.delete(deletedBy));
+        return products.stream()
+                .map(Product::getId)
+                .toList();
     }
 
     private Company getCompany(UUID companyId) {

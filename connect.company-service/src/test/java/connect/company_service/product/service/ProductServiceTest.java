@@ -249,4 +249,36 @@ class ProductServiceTest {
         assertThat(product.getDeletedAt()).isNotNull();
         assertThat(product.getDeletedBy()).isEqualTo(masterId);
     }
+
+    @Test
+    void 업체의_활성_상품을_모두_soft_delete하고_ID_목록을_반환한다() {
+        UUID deletedBy = UUID.randomUUID();
+        Product first = Product.create(company, "사과", null, new BigDecimal("1000.00"));
+        Product second = Product.create(company, "배", null, new BigDecimal("2000.00"));
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+        ReflectionTestUtils.setField(first, "id", firstId);
+        ReflectionTestUtils.setField(second, "id", secondId);
+        given(productRepository.findAllByCompany_IdAndDeletedAtIsNull(companyId)).willReturn(List.of(first, second));
+
+        List<UUID> deletedIds = productService.deleteProductsByCompany(companyId, deletedBy);
+
+        assertThat(List.of(first, second)).allSatisfy(product -> {
+            assertThat(product.getDeletedAt()).isNotNull();
+            assertThat(product.getDeletedBy()).isEqualTo(deletedBy);
+        });
+        // 조회 결과에 정렬 조건이 없으므로 순서는 검증하지 않는다
+        assertThat(deletedIds).containsExactlyInAnyOrder(firstId, secondId);
+        verify(productRepository, never()).delete(any());
+        verify(productRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    void 업체에_활성_상품이_없으면_빈_목록을_반환한다() {
+        given(productRepository.findAllByCompany_IdAndDeletedAtIsNull(companyId)).willReturn(List.of());
+
+        List<UUID> deletedIds = productService.deleteProductsByCompany(companyId, UUID.randomUUID());
+
+        assertThat(deletedIds).isEmpty();
+    }
 }
