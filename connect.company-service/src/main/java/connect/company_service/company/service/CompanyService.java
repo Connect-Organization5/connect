@@ -1,6 +1,8 @@
 package connect.company_service.company.service;
 
+import connect.company_service.client.hub.HubClient;
 import connect.company_service.client.hub.HubValidator;
+import connect.company_service.client.hub.dto.StockDeleteRequest;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -9,6 +11,7 @@ import connect.company_service.company.repository.CompanyRepository;
 import connect.company_service.global.dto.PagedResponse;
 import connect.company_service.global.exception.BaseException;
 import connect.company_service.global.exception.ErrorCode;
+import connect.company_service.product.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -16,6 +19,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -29,6 +33,8 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final HubValidator hubValidator;
+    private final ProductService productService;
+    private final HubClient hubClient;
 
     // 업체 생성
     @Transactional
@@ -100,9 +106,17 @@ public class CompanyService {
 
         validateCompanyAccess(company, userRole, affiliationType, affiliationId);
 
-        company.delete(userId);
+        List<UUID> productIds =
+                productService.deleteProductsByCompany(companyId, userId);
 
-        // TODO: product-service 연동 방식 확정 후 업체 삭제 시 상품 처리
+        if (!productIds.isEmpty()) {
+            hubClient.deleteStocks(
+                    userId,
+                    new StockDeleteRequest(productIds)
+            );
+        }
+
+        company.delete(userId);
     }
 
     // 삭제되지 않은 업체 조회
