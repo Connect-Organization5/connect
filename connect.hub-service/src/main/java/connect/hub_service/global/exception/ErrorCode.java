@@ -31,6 +31,9 @@ public enum ErrorCode {
     STOCK_ALREADY_RESTORED(HttpStatus.CONFLICT, "이미 복원이 완료된 주문입니다."),
     DECREASE_HISTORY_NOT_FOUND(HttpStatus.CONFLICT, "복원할 차감 이력이 없습니다."),
     STOCK_HISTORY_MISMATCH(HttpStatus.CONFLICT, "요청한 허브·상품이 원본 차감 이력의 재고와 일치하지 않습니다."),
+    STOCK_ADJUSTMENT_CONFLICT(HttpStatus.CONFLICT, "같은 조정 ID로 처리된 기존 요청과 주문·허브·상품·증감량이 일치하지 않습니다."),
+    STOCK_ALLOCATION_UNDERFLOW(HttpStatus.CONFLICT, "조정 후 주문이 점유하는 재고 수량이 1 미만입니다."),
+    INVALID_QUANTITY_DELTA(HttpStatus.BAD_REQUEST, "조정 수량은 0이 될 수 없습니다."),
     ;
 
     private final HttpStatus status;

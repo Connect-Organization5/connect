@@ -6,6 +6,8 @@ import connect.hub_service.global.exception.ErrorCode;
 import connect.hub_service.global.util.PageRequests;
 import connect.hub_service.hub.entity.Hub;
 import connect.hub_service.hub.repository.HubRepository;
+import connect.hub_service.stock.dto.StockAdjustRequest;
+import connect.hub_service.stock.dto.StockAdjustResponse;
 import connect.hub_service.stock.dto.StockCreateRequest;
 import connect.hub_service.stock.dto.StockDecreaseRequest;
 import connect.hub_service.stock.dto.StockDecreaseResponse;
@@ -21,6 +23,7 @@ import connect.hub_service.stock.entity.StockHistory;
 import connect.hub_service.stock.entity.StockHistoryType;
 import connect.hub_service.stock.repository.StockHistoryRepository;
 import connect.hub_service.stock.repository.StockRepository;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -31,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -48,6 +52,7 @@ public class StockService {
     private final StockRepository stockRepository;
     private final StockHistoryRepository stockHistoryRepository;
     private final HubRepository hubRepository;
+    private final EntityManager entityManager;
 
     @Transactional
     public StockResponse register(String role, StockCreateRequest request) {
@@ -104,7 +109,7 @@ public class StockService {
 
     /**
      * 주문 재고 차감. orderId 기준으로 멱등하다(Order는 주문당 단일 상품만 보낸다).
-     * 재고 변경과 DECREASE 이력은 한 트랜잭션이며, 같은 orderId를 다른 재고로 동시에 요청하면 UNIQUE(order_id, type)이 막는다.
+     * 재고 변경과 DECREASE 이력은 한 트랜잭션이며, 같은 orderId를 다른 재고로 동시에 요청하면 UNIQUE(type, idempotency_key)의 (DECREASE, orderId)가 막는다.
      */
     @Transactional
     public StockDecreaseResponse decrease(StockDecreaseRequest request) {
@@ -159,14 +164,21 @@ public class StockService {
         }
 
         // 원본 이력의 재고를 잠근 뒤 RESTORE 이력을 다시 확인한다. 삭제된 재고도 대상이다.
-        Stock stock = stockRepository.findByIdForUpdate(original.getId())
-                .orElseThrow(() -> new BaseException(ErrorCode.STOCK_NOT_FOUND));
+        Stock stock = lockStock(original.getId());
         restore = findHistory(orderId, StockHistoryType.RESTORE);
         if (restore != null) {
             return replayRestore(restore, stock);
         }
 
-        int quantity = decrease.getQuantity();
+        // 복원 수량은 최초 차감이 아니라 조정(ADJUST)까지 반영한 현재 점유 수량이다. 잠금 후 최신 이력으로 계산한다.
+        long allocated = allocatedQuantity(stockHistoryRepository.findByOrderIdOrderByCreatedAtAscIdAsc(orderId));
+        if (allocated < 1) {
+            throw new BaseException(ErrorCode.STOCK_ALLOCATION_UNDERFLOW);
+        }
+        if (allocated > Integer.MAX_VALUE) {
+            throw new BaseException(ErrorCode.STOCK_QUANTITY_OVERFLOW);
+        }
+        int quantity = (int) allocated;
         try {
             stock.increase(quantity);
         } catch (ArithmeticException e) {
@@ -174,6 +186,91 @@ public class StockService {
         }
         saveHistory(StockHistory.restore(orderId, stock, quantity));
         return new StockRestoreResponse(orderId, stock.getId(), quantity, stock.getQuantity(), false);
+    }
+
+    /**
+     * 주문 수량 수정에 따른 재고 조정. Order가 계산한 diff(수정 후 - 수정 전)를 quantityDelta로 받는다.
+     * 멱등 키는 adjustmentId이며, 같은 작업의 재시도는 alreadyProcessed=true로 응답한다.
+     * 재고 행을 잠근 뒤 이력을 다시 조회하므로 같은 주문의 조정·복원·차감과 동시에 들어와도 직렬화된다.
+     * 서로 다른 재고에 같은 adjustmentId가 동시에 들어오는 경합은 UNIQUE(type, idempotency_key)의 (ADJUST, adjustmentId)가 막는다.
+     */
+    @Transactional
+    public StockAdjustResponse adjust(StockAdjustRequest request) {
+        int delta = request.quantityDelta();
+        if (delta == 0) {
+            throw new BaseException(ErrorCode.INVALID_QUANTITY_DELTA);
+        }
+        UUID orderId = request.orderId();
+
+        // 1~4. 이미 처리된 조정이면 그 이력의 재고를, 아니면 최초 차감 이력의 재고를 대상으로 한다.
+        StockHistory processed = stockHistoryRepository.findByTypeAndIdempotencyKey(StockHistoryType.ADJUST, request.adjustmentId()).orElse(null);
+        Stock target;
+        if (processed != null) {
+            assertSameAdjustment(processed, request);
+            target = processed.getStock();
+        } else {
+            StockHistory decrease = findHistory(orderId, StockHistoryType.DECREASE);
+            if (decrease == null) {
+                throw new BaseException(ErrorCode.DECREASE_HISTORY_NOT_FOUND);
+            }
+            target = decrease.getStock();
+            if (!target.getHub().getId().equals(request.hubId()) || !target.getProductId().equals(request.productId())) {
+                throw new BaseException(ErrorCode.STOCK_HISTORY_MISMATCH);
+            }
+        }
+
+        // 5~6. 재고 행을 잠근 뒤 같은 조정과 주문 이력을 다시 조회한다. 삭제된 재고도 대상이다.
+        Stock stock = lockStock(target.getId());
+        processed = stockHistoryRepository.findByTypeAndIdempotencyKey(StockHistoryType.ADJUST, request.adjustmentId()).orElse(null);
+        List<StockHistory> histories = stockHistoryRepository.findByOrderIdOrderByCreatedAtAscIdAsc(orderId);
+
+        // 7. 이미 처리된 조정이면 재고를 바꾸지 않고 최신 점유 수량·재고 수량으로 응답한다.
+        if (processed != null) {
+            assertSameAdjustment(processed, request);
+            return new StockAdjustResponse(request.adjustmentId(), orderId, stock.getId(), processed.getQuantityDelta(),
+                    toInt(allocatedQuantity(histories)), stock.getQuantity(), true);
+        }
+
+        // 8. 새로운 요청 검증. 복원 완료 주문은 조정할 수 없고, 조정 후 점유 수량은 1 이상 int 범위여야 한다.
+        if (histories.stream().anyMatch(h -> h.getType() == StockHistoryType.RESTORE)) {
+            throw new BaseException(ErrorCode.STOCK_ALREADY_RESTORED);
+        }
+        long allocatedAfter = allocatedQuantity(histories) + delta;
+        if (allocatedAfter < 1) {
+            throw new BaseException(ErrorCode.STOCK_ALLOCATION_UNDERFLOW);
+        }
+        if (allocatedAfter > Integer.MAX_VALUE) {
+            throw new BaseException(ErrorCode.STOCK_QUANTITY_OVERFLOW);
+        }
+
+        // Integer.MIN_VALUE의 절댓값이 int를 넘지 않도록 long으로 계산한다.
+        long amount = Math.abs((long) delta);
+        if (delta > 0) {
+            // 양수는 추가 차감이다. 삭제된 재고에는 새로 차감할 수 없다.
+            if (stock.getDeletedAt() != null) {
+                throw new BaseException(ErrorCode.STOCK_DELETED);
+            }
+            if (stock.getQuantity() < amount) {
+                throw new BaseException(ErrorCode.INSUFFICIENT_STOCK);
+            }
+            stock.decrease((int) amount);
+        } else {
+            // 음수는 재고 반환이다. 삭제된 재고에도 허용하고 삭제 상태는 유지한다.
+            try {
+                stock.increase((int) amount);
+            } catch (ArithmeticException e) {
+                throw new BaseException(ErrorCode.STOCK_QUANTITY_OVERFLOW);
+            }
+        }
+
+        // 9. UNIQUE 위반(같은 adjustmentId의 동시 처리)이면 추가 조회 없이 바로 예외를 던져 전체를 롤백한다.
+        try {
+            stockHistoryRepository.saveAndFlush(StockHistory.adjust(orderId, stock, request.adjustmentId(), delta));
+        } catch (DataIntegrityViolationException e) {
+            throw new BaseException(ErrorCode.STOCK_ADJUSTMENT_CONFLICT);
+        }
+        return new StockAdjustResponse(request.adjustmentId(), orderId, stock.getId(), delta,
+                (int) allocatedAfter, stock.getQuantity(), false);
     }
 
     /**
@@ -197,6 +294,15 @@ public class StockService {
 
     public StockHistoryResponse getHistories(UUID orderId) {
         return StockHistoryResponse.of(orderId, stockHistoryRepository.findByOrderIdOrderByCreatedAtAscIdAsc(orderId));
+    }
+
+    // 재고 행을 쓰기 잠금으로 조회하고 최신 상태로 갱신한다. 이력의 getStock() 등으로 잠금 전에 읽어 둔 재고가 있으면
+    // 영속성 컨텍스트에 남은 낡은 수량을 그대로 돌려주므로, 잠금 이후에 refresh해 다른 트랜잭션의 변경이 유실되지 않게 한다.
+    private Stock lockStock(UUID stockId) {
+        Stock stock = stockRepository.findByIdForUpdate(stockId)
+                .orElseThrow(() -> new BaseException(ErrorCode.STOCK_NOT_FOUND));
+        entityManager.refresh(stock);
+        return stock;
     }
 
     private StockHistory findHistory(UUID orderId, StockHistoryType type) {
@@ -230,7 +336,42 @@ public class StockService {
                 stock.getQuantity(), true);
     }
 
-    // UNIQUE(order_id, type) 위반은 같은 주문 ID로 다른 재고를 동시에 처리한 경우다. 예외로 수량 변경도 함께 롤백된다.
+    // 주문이 현재 점유한 수량 = DECREASE.quantity + 모든 ADJUST.quantityDelta. RESTORE가 있으면 0이다.
+    // 중간 오버플로를 피하려고 long으로 합산한다.
+    private static long allocatedQuantity(List<StockHistory> histories) {
+        long total = 0;
+        for (StockHistory history : histories) {
+            switch (history.getType()) {
+                case DECREASE -> total += history.getQuantity();
+                case ADJUST -> total += history.getQuantityDelta();
+                case RESTORE -> {
+                    return 0;
+                }
+            }
+        }
+        return total;
+    }
+
+    private static int toInt(long value) {
+        if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+            throw new BaseException(ErrorCode.STOCK_QUANTITY_OVERFLOW);
+        }
+        return (int) value;
+    }
+
+    // 같은 adjustmentId는 같은 주문·허브·상품·증감량일 때만 같은 작업이다. 다르면 충돌이다.
+    private static void assertSameAdjustment(StockHistory processed, StockAdjustRequest request) {
+        Stock stock = processed.getStock();
+        boolean same = processed.getOrderId().equals(request.orderId())
+                && stock.getHub().getId().equals(request.hubId())
+                && stock.getProductId().equals(request.productId())
+                && processed.getQuantityDelta().equals(request.quantityDelta());
+        if (!same) {
+            throw new BaseException(ErrorCode.STOCK_ADJUSTMENT_CONFLICT);
+        }
+    }
+
+    // UNIQUE(type, idempotency_key) 위반은 같은 주문 ID로 다른 재고를 동시에 처리한 경우다. 예외로 수량 변경도 함께 롤백된다.
     private void saveHistory(StockHistory history) {
         try {
             stockHistoryRepository.saveAndFlush(history);

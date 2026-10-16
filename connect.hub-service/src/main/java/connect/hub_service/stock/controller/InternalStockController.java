@@ -1,6 +1,8 @@
 package connect.hub_service.stock.controller;
 
 import connect.hub_service.global.dto.ApiResponse;
+import connect.hub_service.stock.dto.StockAdjustRequest;
+import connect.hub_service.stock.dto.StockAdjustResponse;
 import connect.hub_service.stock.dto.StockDecreaseRequest;
 import connect.hub_service.stock.dto.StockDecreaseResponse;
 import connect.hub_service.stock.dto.StockDeleteRequest;
@@ -33,6 +35,12 @@ public class InternalStockController {
     @PostMapping("/decrease")
     public ApiResponse<StockDecreaseResponse> decrease(@Valid @RequestBody StockDecreaseRequest request) {
         return ApiResponse.ok("재고 차감 성공", stockService.decrease(request));
+    }
+
+    // 주문 수량 수정에 따른 재고 조정. quantityDelta = 수정 후 주문 수량 - 수정 전 주문 수량(양수: 재고 차감, 음수: 재고 증가).
+    @PostMapping("/adjust")
+    public ApiResponse<StockAdjustResponse> adjust(@Valid @RequestBody StockAdjustRequest request) {
+        return ApiResponse.ok("재고 조정 성공", stockService.adjust(request));
     }
 
     @PostMapping("/restore")

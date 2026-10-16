@@ -453,10 +453,10 @@ class StockOrderIntegrationTest {
         UUID low = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID high = UUID.fromString("ffffffff-0000-0000-0000-000000000001");
         // 일부러 ID가 큰 DECREASE를 먼저 넣어, 정렬이 삽입 순서가 아니라 id 기준임을 확인한다.
-        jdbcTemplate.update("insert into p_stock_histories (id, order_id, stock_id, quantity, type, created_at) "
-                + "values (?, ?, ?, 10, 'DECREASE', '2026-10-14 09:30:00')", high, orderId, stock.id());
-        jdbcTemplate.update("insert into p_stock_histories (id, order_id, stock_id, quantity, type, created_at) "
-                + "values (?, ?, ?, 10, 'RESTORE', '2026-10-14 09:30:00')", low, orderId, stock.id());
+        jdbcTemplate.update("insert into p_stock_histories (id, order_id, stock_id, quantity, type, idempotency_key, created_at) "
+                + "values (?, ?, ?, 10, 'DECREASE', ?, '2026-10-14 09:30:00')", high, orderId, stock.id(), orderId);
+        jdbcTemplate.update("insert into p_stock_histories (id, order_id, stock_id, quantity, type, idempotency_key, created_at) "
+                + "values (?, ?, ?, 10, 'RESTORE', ?, '2026-10-14 09:30:00')", low, orderId, stock.id(), orderId);
 
         histories(orderId)
                 .andExpect(jsonPath("$.data.histories[0].historyId").value(low.toString()))
@@ -472,9 +472,10 @@ class StockOrderIntegrationTest {
 
     // ---- DB 제약 ----
 
+    // DECREASE·RESTORE의 멱등 키는 주문 ID다.
     private void insertHistory(UUID orderId, UUID stockId, int quantity, String type) {
-        jdbcTemplate.update("insert into p_stock_histories (id, order_id, stock_id, quantity, type, created_at) "
-                + "values (?, ?, ?, ?, ?, now())", UUID.randomUUID(), orderId, stockId, quantity, type);
+        jdbcTemplate.update("insert into p_stock_histories (id, order_id, stock_id, quantity, type, idempotency_key, created_at) "
+                + "values (?, ?, ?, ?, ?, ?, now())", UUID.randomUUID(), orderId, stockId, quantity, type, orderId);
     }
 
     @Test
@@ -604,6 +605,26 @@ class StockOrderIntegrationTest {
         assertThat(statuses).allMatch(s -> s == 200);
         assertThat(quantityOf(stock.id())).isEqualTo(100);
         assertThat(historyCount(orderId)).isEqualTo(2);
+    }
+
+    @Test
+    void 복원과_다른_주문의_차감이_동시에_들어와도_재고_변경이_유실되지_않는다() throws Exception {
+        // 복원은 이력에서 재고를 먼저 읽은 뒤 잠그므로, 잠금 후 최신 수량으로 갱신하지 않으면 다른 주문의 차감을 덮어쓴다.
+        TestStock stock = createStock(1000);
+        UUID restoredOrder = UUID.randomUUID();
+        decrease(restoredOrder, stock, 10).andExpect(status().isOk());
+        List<Callable<Integer>> tasks = new ArrayList<>();
+        tasks.add(() -> statusOf(restore(restoredOrder, stock)));
+        for (int i = 0; i < 6; i++) {
+            UUID otherOrder = UUID.randomUUID();
+            tasks.add(() -> statusOf(decrease(otherOrder, stock, 1)));
+        }
+
+        List<Integer> statuses = runConcurrently(tasks);
+
+        assertThat(statuses).allMatch(s -> s == 200);
+        // 1000 - 10(복원됨) + 6개 주문이 각 1개 차감 = 994
+        assertThat(quantityOf(stock.id())).isEqualTo(994);
     }
 
     @Test
