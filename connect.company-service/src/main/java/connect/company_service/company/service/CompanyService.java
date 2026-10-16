@@ -62,8 +62,7 @@ public class CompanyService {
     // 업체 단건 조회
     @Transactional(readOnly = true)
     public CompanyResponse getCompany(UUID companyId) {
-        Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
-                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+        Company company = findActiveCompany(companyId);
         return CompanyResponse.from(company);
     }
 
@@ -87,8 +86,7 @@ public class CompanyService {
     @Transactional
     public CompanyResponse updateCompany(UUID companyId, String userRole, String affiliationType,
                                          String companyName, UpdateCompanyRequest request) {
-        Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
-                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+        Company company = findActiveCompany(companyId);
 
         validateCompanyAccess(company, userRole, affiliationType, companyName);
 
@@ -110,14 +108,19 @@ public class CompanyService {
     @Transactional
     public void deleteCompany(UUID companyId, UUID userId, String userRole, String affiliationType,
                               String companyName) {
-        Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
-                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+        Company company = findActiveCompany(companyId);
 
         validateCompanyAccess(company, userRole, affiliationType, companyName);
 
         company.delete(userId);
 
         // TODO: product-service 연동 방식 확정 후 업체 삭제 시 상품 처리
+    }
+
+    // 삭제되지 않은 업체 조회
+    private Company findActiveCompany(UUID companyId) {
+        return companyRepository.findByIdAndDeletedAtIsNull(companyId)
+                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
     }
 
     // MASTER이거나, 해당 업체명으로 가입한 업체 소속 사용자만 허용
