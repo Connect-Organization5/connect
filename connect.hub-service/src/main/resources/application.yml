@@ -1,0 +1,38 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: hub-service
+
+  datasource:
+    url: ${HUB_DB_URL:jdbc:postgresql://localhost:5432/connect_hub}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+
+hub:
+  seed:
+    # 허브·경로 초기 데이터를 기동 시 적재할지 여부. 운영에서는 적재 완료 후 false 권장.
+    enabled: ${HUB_SEED_ENABLED:true}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
