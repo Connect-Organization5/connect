@@ -1,4 +1,4 @@
-package connect.eureka_gateway.filter;
+package connect.eureka_gateway.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
@@ -26,6 +26,8 @@ public class LocalJwtAuthenticationFilter implements GlobalFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
+
+        // /auth/login 으로 들어올 때 Token 체크 안하게 설정
         if (path.equals("/auth/login")) {
             return chain.filter(exchange);
         }

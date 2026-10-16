@@ -1,4 +1,4 @@
-package connect.user_service.config;
+package connect.user_service.global.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

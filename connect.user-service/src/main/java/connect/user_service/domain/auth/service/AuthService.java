@@ -1,5 +1,6 @@
-package connect.user_service.service;
+package connect.user_service.domain.auth.service;
 
+import connect.user_service.domain.user.dto.request.SignUpRequest;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
@@ -25,10 +26,10 @@ public class AuthService {
         this.secretKey = Keys.hmacShaKeyFor(Decoders.BASE64URL.decode(secretKey));
     }
 
-    public String createAccessToken(String username, String password) {
+    public String createAccessToken(SignUpRequest request) {
         return Jwts.builder()
-                .claim("username", username)
-                .claim("password", password)
+                .claim("username", request.getUsername())
+                .claim("password", request.getPassword())
                 // .claim("role", "ADMIN")
                 .issuer(issuer)
                 .issuedAt(new Date((System.currentTimeMillis())))
