@@ -36,10 +36,7 @@ public class AuthConfig {
         http
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                )
-
-
-        ;
+                );
 
         // 설정된 보안 필터 체인을 반환합니다.
         return http.build();

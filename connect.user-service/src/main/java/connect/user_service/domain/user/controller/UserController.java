@@ -1,6 +1,6 @@
 package connect.user_service.domain.user.controller;
 
-import connect.user_service.domain.user.dto.request.UpdateUser;
+import connect.user_service.domain.user.dto.UpdateUser;
 import connect.user_service.domain.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
