@@ -8,14 +8,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.UUID;
@@ -39,6 +43,12 @@ public class LocalJwtAuthenticationFilter implements GlobalFilter {
     private static final String AFFILIATION_TYPE_CLAIM = "affiliationType";
     private static final String AFFILIATION_ID_CLAIM = "affiliationId";
 
+    // 401 응답 본문 (user-service ErrorCode 의 UNAUTHORIZED, INVALID_TOKEN 과 같은 값)
+    static final String UNAUTHORIZED_CODE = "UNAUTHORIZED";
+    static final String UNAUTHORIZED_MESSAGE = "인증이 필요합니다.";
+    static final String INVALID_TOKEN_CODE = "INVALID_TOKEN";
+    static final String INVALID_TOKEN_MESSAGE = "유효하지 않거나 만료된 토큰입니다.";
+
     @Value("${service.jwt.secret-key}")
     private String secretKey;
 
@@ -52,14 +62,27 @@ public class LocalJwtAuthenticationFilter implements GlobalFilter {
         }
 
         String token  = extractToken(exchange);
-        Claims claims = token == null ? null : parseValidClaims(token);
+        if (token == null) {
+            return unauthorized(exchange, UNAUTHORIZED_CODE, UNAUTHORIZED_MESSAGE);
+        }
 
+        Claims claims = parseValidClaims(token);
         if (claims == null){
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
+            return unauthorized(exchange, INVALID_TOKEN_CODE, INVALID_TOKEN_MESSAGE);
         }
 
         return chain.filter(withUserHeaders(exchange, claims));
+    }
+
+    // 401 응답에 공통 에러 형식 {code, message} 본문을 담아 반환 (user-service 의 ErrorCode 와 같은 코드·메시지)
+    private Mono<Void> unauthorized(ServerWebExchange exchange, String code, String message) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.getHeaders().setContentType(new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8));
+
+        String body = "{\"code\":\"" + code + "\",\"message\":\"" + message + "\"}";
+        DataBuffer buffer = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
+        return response.writeWith(Mono.just(buffer));
     }
 
     private String extractToken(ServerWebExchange exchange) {
