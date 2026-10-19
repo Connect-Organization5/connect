@@ -17,12 +17,12 @@ public class DeliveryFeignClient implements DeliveryClient {
 
     @Override
     public UUID createDelivery(DeliveryCreateRequest request) {
-        return deliveryFeignApi.createDelivery(request).id();
+        return deliveryFeignApi.createDelivery(request).getData().id();
     }
 
     @Override
     public DeliveryInfo getDelivery(UUID deliveryId, UUID userId, String userRole) {
-        return deliveryFeignApi.getDelivery(deliveryId, userId, userRole);
+        return deliveryFeignApi.getDelivery(deliveryId, userId, userRole).getData();
     }
 
     @Override
