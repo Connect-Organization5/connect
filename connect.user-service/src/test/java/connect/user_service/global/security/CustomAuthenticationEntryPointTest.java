@@ -31,11 +31,11 @@ class CustomAuthenticationEntryPointTest {
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getContentType()).startsWith("application/json");
 
+        // 공통 에러 형식은 code, message 만 (HTTP 상태는 응답 상태 코드로만 전달)
         JsonNode body = objectMapper.readTree(response.getContentAsString());
-        assertThat(body.get("status").asInt()).isEqualTo(401);
         assertThat(body.get("code").asString()).isEqualTo("UNAUTHORIZED");
         assertThat(body.get("message").asString()).isEqualTo("인증이 필요합니다.");
-        assertThat(body.has("timestamp")).isTrue();
+        assertThat(body.propertyNames()).containsExactlyInAnyOrder("code", "message");
     }
 
     @Test

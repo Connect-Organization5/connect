@@ -15,4 +15,9 @@ public record HubRouteResponse(UUID routeId, UUID departureHubId, UUID arrivalHu
                 route.getDistance().doubleValue(),
                 route.getDuration());
     }
+
+    // 출발·도착 허브가 같으면 이동이 없으므로 저장된 경로 없이 거리·시간 0으로 응답한다. routeId는 null이다.
+    public static HubRouteResponse sameHub(UUID hubId) {
+        return new HubRouteResponse(null, hubId, hubId, 0.0, 0);
+    }
 }

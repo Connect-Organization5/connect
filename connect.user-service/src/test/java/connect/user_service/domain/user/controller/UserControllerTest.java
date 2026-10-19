@@ -97,12 +97,15 @@ class UserControllerTest {
         // when & then
         mockMvc.perform(get("/users/{userId}", idOf(1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(idOf(1).toString()))
-                .andExpect(jsonPath("$.username").value("tester"))
-                .andExpect(jsonPath("$.email").value("tester@test.com"))
-                .andExpect(jsonPath("$.affiliationType").value("COMPANY"))
-                .andExpect(jsonPath("$.affiliationId").value(AFFILIATION_ID.toString()))
-                .andExpect(jsonPath("$.slackId").value("slack-1"));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원 정보를 조회했습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.id").value(idOf(1).toString()))
+                .andExpect(jsonPath("$.data.username").value("tester"))
+                .andExpect(jsonPath("$.data.email").value("tester@test.com"))
+                .andExpect(jsonPath("$.data.affiliationType").value("COMPANY"))
+                .andExpect(jsonPath("$.data.affiliationId").value(AFFILIATION_ID.toString()))
+                .andExpect(jsonPath("$.data.slackId").value("slack-1"));
     }
 
     @Test
@@ -114,7 +117,7 @@ class UserControllerTest {
         // when & then
         mockMvc.perform(get("/users/{userId}", idOf(999)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.status").doesNotExist())
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value(ErrorCode.USER_NOT_FOUND.getMessage()));
     }
@@ -166,12 +169,15 @@ class UserControllerTest {
         // when & then
         update(idOf(2), VALID_UPDATE_BODY)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(idOf(2).toString()))
-                .andExpect(jsonPath("$.email").value("new@test.com"))
-                .andExpect(jsonPath("$.affiliationType").value("COMPANY"))
-                .andExpect(jsonPath("$.affiliationId").value(AFFILIATION_ID.toString()))
-                .andExpect(jsonPath("$.slackId").value("new-slack"))
-                .andExpect(jsonPath("$.password").doesNotExist());
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원 정보를 수정했습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.id").value(idOf(2).toString()))
+                .andExpect(jsonPath("$.data.email").value("new@test.com"))
+                .andExpect(jsonPath("$.data.affiliationType").value("COMPANY"))
+                .andExpect(jsonPath("$.data.affiliationId").value(AFFILIATION_ID.toString()))
+                .andExpect(jsonPath("$.data.slackId").value("new-slack"))
+                .andExpect(jsonPath("$.data.password").doesNotExist());
     }
 
     @Test
@@ -252,13 +258,16 @@ class UserControllerTest {
         // when & then
         mockMvc.perform(get("/users").param("page", "1").param("size", "2"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(2))
-                .andExpect(jsonPath("$.content[0].id").value(idOf(1).toString()))
-                .andExpect(jsonPath("$.content[1].id").value(idOf(2).toString()))
-                .andExpect(jsonPath("$.page").value(1))
-                .andExpect(jsonPath("$.size").value(2))
-                .andExpect(jsonPath("$.totalElements").value(5))
-                .andExpect(jsonPath("$.totalPages").value(3));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원 목록을 조회했습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(idOf(1).toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(idOf(2).toString()))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(2))
+                .andExpect(jsonPath("$.data.totalElements").value(5))
+                .andExpect(jsonPath("$.data.totalPages").value(3));
     }
 
     @Test
@@ -271,7 +280,7 @@ class UserControllerTest {
         // when & then
         mockMvc.perform(get("/users"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(0));
+                .andExpect(jsonPath("$.data.content.length()").value(0));
         then(userService).should().getAllUsers(same(loginUser), eq(0), eq(10));
     }
 
@@ -377,5 +386,42 @@ class UserControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         then(userService).should(never()).deleteUser(any(), any());
+    }
+
+    // ===== 응답 형식 공통 =====
+
+    @Test
+    @DisplayName("GET /users/user-info - 성공 시 200 과 ApiResponse 로 감싼 로그인 회원 정보")
+    void getUserInfo_success() throws Exception {
+        mockMvc.perform(get("/users/user-info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("로그인 회원 정보를 조회했습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.username").value("master"))
+                .andExpect(jsonPath("$.data.admin").value(true));
+    }
+
+    @Test
+    @DisplayName("예상하지 못한 예외는 500 INTERNAL_SERVER_ERROR, 내부 예외 메시지는 노출하지 않음")
+    void unexpectedException_returns500WithoutInternalMessage() throws Exception {
+        given(userService.getUser(eq(idOf(1)), any(User.class)))
+                .willThrow(new IllegalStateException("SELECT * FROM users -- internal detail"));
+
+        mockMvc.perform(get("/users/{userId}", idOf(1)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value(ErrorCode.INTERNAL_SERVER_ERROR.getMessage()))
+                .andExpect(jsonPath("$.success").doesNotExist())
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("internal detail"))));
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 HTTP 메서드는 405 와 UNSUPPORTED_REQUEST (400 으로 바꾸지 않음)")
+    void methodNotAllowed_returns405() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/users/{userId}", idOf(1)))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_REQUEST"))
+                .andExpect(jsonPath("$.message").value(ErrorCode.UNSUPPORTED_REQUEST.getMessage()));
     }
 }

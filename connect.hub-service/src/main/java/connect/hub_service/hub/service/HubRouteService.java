@@ -6,6 +6,7 @@ import connect.hub_service.global.exception.ErrorCode;
 import connect.hub_service.global.util.PageRequests;
 import connect.hub_service.hub.dto.HubRouteResponse;
 import connect.hub_service.hub.entity.HubRoute;
+import connect.hub_service.hub.repository.HubRepository;
 import connect.hub_service.hub.repository.HubRouteRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -24,6 +25,7 @@ public class HubRouteService {
     private static final Sort DEFAULT_SORT = Sort.by("departureHub.id").and(Sort.by("arrivalHub.id"));
 
     private final HubRouteRepository hubRouteRepository;
+    private final HubRepository hubRepository;
 
     // 출발·도착 조건은 각각 선택이며 둘 다 있으면 AND
     public PagedResponse<HubRouteResponse> getRoutes(UUID departureHubId, UUID arrivalHubId, int page, int size) {
@@ -42,7 +44,15 @@ public class HubRouteService {
         return PagedResponse.from(routes.map(HubRouteResponse::from));
     }
 
+    // 같은 허브 소속 업체 간 주문도 배송 경로 조회가 필요하므로, 출발·도착이 같으면 허브 존재만 확인하고 거리·시간 0을 반환한다.
     public HubRouteResponse getRoute(UUID departureHubId, UUID arrivalHubId) {
+        if (departureHubId.equals(arrivalHubId)) {
+            if (!hubRepository.existsById(departureHubId)) {
+                throw new BaseException(ErrorCode.HUB_NOT_FOUND);
+            }
+            return HubRouteResponse.sameHub(departureHubId);
+        }
+
         HubRoute route = hubRouteRepository.findByDepartureHubIdAndArrivalHubId(departureHubId, arrivalHubId)
                 .orElseThrow(() -> new BaseException(ErrorCode.ROUTE_NOT_FOUND));
         return HubRouteResponse.from(route);

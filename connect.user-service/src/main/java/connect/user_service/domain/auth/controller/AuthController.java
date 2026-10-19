@@ -5,8 +5,8 @@ import connect.user_service.domain.user.dto.request.SignUpRequestDto;
 import connect.user_service.domain.user.dto.response.UpdateUserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.service.UserService;
+import connect.user_service.global.dto.ApiResponse;
 import connect.user_service.global.security.JwtUtil;
-import connect.user_service.global.security.UserDetailsImpl;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -15,7 +15,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
@@ -28,20 +27,20 @@ public class AuthController {
 
     private final UserService userService;
 
-    // MASTER 가 같은 소속의 회원을 생성 (생성된 회원의 토큰은 발급하지 않음)
+    // 로그인 없이 회원가입 (USER 권한으로 생성, 토큰은 발급하지 않으므로 가입 후 /auth/login 으로 로그인)
     @PostMapping("/signup")
-    public ResponseEntity<UpdateUserResponse> signup(@Valid @RequestBody SignUpRequestDto requestDto,
-                                                     @AuthenticationPrincipal UserDetailsImpl userDetails) {
-        UpdateUserResponse response = userService.signup(requestDto, userDetails.getUser());
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    public ResponseEntity<ApiResponse<UpdateUserResponse>> signup(@Valid @RequestBody SignUpRequestDto requestDto) {
+        UpdateUserResponse response = userService.signup(requestDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("회원가입이 완료되었습니다.", response));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequestDto requestDto) {
+    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequestDto requestDto) {
         // 아이디, 비밀번호 확인
         User user = userService.login(requestDto);
-        // 확인된 회원 정보로 토큰 생성 후 return
-        return ResponseEntity.ok(new AuthResponse(jwtUtil.createAccessToken(user.getUsername())));
+        // 확인된 회원 정보로 토큰 생성 후 return (토큰은 data.access_token)
+        AuthResponse response = new AuthResponse(jwtUtil.createAccessToken(user));
+        return ResponseEntity.ok(ApiResponse.ok("로그인에 성공했습니다.", response));
     }
 
     @Data
