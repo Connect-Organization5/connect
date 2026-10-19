@@ -1,6 +1,6 @@
 package connect.user_service.domain.auth.controller;
 
-import connect.user_service.domain.auth.service.AuthService;
+import connect.user_service.global.security.JwtUtil;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
 import connect.user_service.domain.user.entity.User;
@@ -48,7 +48,7 @@ class AuthControllerTest {
             """;
 
     @Mock
-    private AuthService authService;
+    private JwtUtil jwtUtil;
 
     @Mock
     private UserService userService;
@@ -75,7 +75,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/signup - 성공 시 201 과 access_token 반환")
     void signup_success() throws Exception {
         // given
-        given(authService.createAccessToken("tester")).willReturn("test-token");
+        given(jwtUtil.createAccessToken("tester")).willReturn("test-token");
 
         // when & then
         signup(VALID_BODY)
@@ -92,7 +92,7 @@ class AuthControllerTest {
         signup(VALID_BODY)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("USER_ALREADY_EXISTS"));
-        then(authService).should(never()).createAccessToken(anyString());
+        then(jwtUtil).should(never()).createAccessToken(anyString());
     }
 
     @Test
@@ -183,7 +183,7 @@ class AuthControllerTest {
         // given
         User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, "COMPANY", 1L, "slack-1");
         given(userService.login(any(LoginRequestDto.class))).willReturn(user);
-        given(authService.createAccessToken("tester")).willReturn("test-token");
+        given(jwtUtil.createAccessToken("tester")).willReturn("test-token");
 
         // when & then
         login("""
@@ -207,7 +207,7 @@ class AuthControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"))
                 .andExpect(jsonPath("$.message").value(ErrorCode.INVALID_CREDENTIALS.getMessage()));
-        then(authService).should(never()).createAccessToken(anyString());
+        then(jwtUtil).should(never()).createAccessToken(anyString());
     }
 
     @Test
@@ -221,7 +221,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.message").value(containsString("username")))
                 .andExpect(jsonPath("$.message").value(containsString("password")));
         then(userService).should(never()).login(any());
-        then(authService).should(never()).createAccessToken(anyString());
+        then(jwtUtil).should(never()).createAccessToken(anyString());
     }
 
     @Test

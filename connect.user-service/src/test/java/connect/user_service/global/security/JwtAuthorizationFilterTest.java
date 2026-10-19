@@ -3,11 +3,7 @@ package connect.user_service.global.security;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.global.exception.ErrorCode;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.io.Encoders;
-import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,7 +19,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.security.SecureRandom;
-import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
@@ -55,15 +50,14 @@ class JwtAuthorizationFilterTest {
         SecurityContextHolder.clearContext();
     }
 
-    // AuthService 와 같은 방식으로 토큰 발급
+    // 실제 로그인과 같은 JwtUtil.createAccessToken 으로 토큰 발급 (키, 만료 시간만 지정)
     private String createToken(String signingKey, String username, long expirationMillis) {
-        return Jwts.builder()
-                .claim("username", username)
-                .issuer("user-service")
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expirationMillis))
-                .signWith(Keys.hmacShaKeyFor(Decoders.BASE64URL.decode(signingKey)), SignatureAlgorithm.HS512)
-                .compact();
+        JwtUtil issuer = new JwtUtil();
+        ReflectionTestUtils.setField(issuer, "secretKey", signingKey);
+        ReflectionTestUtils.setField(issuer, "accessExpiration", expirationMillis);
+        ReflectionTestUtils.setField(issuer, "issuer", "user-service");
+        issuer.init();
+        return issuer.createAccessToken(username);
     }
 
     private MockHttpServletRequest requestWithToken(String token) {
@@ -73,7 +67,7 @@ class JwtAuthorizationFilterTest {
     }
 
     @Test
-    @DisplayName("AuthService 가 발급한 유효한 토큰이면 SecurityContext 에 인증 정보 저장")
+    @DisplayName("JwtUtil 이 발급한 유효한 토큰이면 SecurityContext 에 인증 정보 저장")
     void validToken_setsAuthentication() throws Exception {
         // given
         User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, "COMPANY", 1L, "slack-1");

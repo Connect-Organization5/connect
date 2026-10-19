@@ -1,6 +1,5 @@
 package connect.user_service.global.security;
 
-import connect.user_service.domain.user.entity.UserRole;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -19,22 +18,23 @@ import java.util.Date;
 public class JwtUtil {
     // Header KEY 값
     public static final String AUTHORIZATION_HEADER = "Authorization";
-    // 사용자 권한 값의 KEY
-    public static final String AUTHORIZATION_KEY = "auth";
     // Token 식별자
     public static final String BEARER_PREFIX = "Bearer ";
-    // 사용자 이름 claim KEY (AuthService 에서 발급하는 토큰과 동일)
+    // 사용자 이름 claim KEY (발급, 검증 모두 이 값 사용)
     public static final String USERNAME_KEY = "username";
 
-    @Value("${service.jwt.secret-key}") // AuthService, Gateway 와 같은 Base64URL Encode 한 SecretKey
+    @Value("${service.jwt.secret-key}") // Gateway 와 같은 Base64URL Encode 한 SecretKey
     private String secretKey;
 
     @Value("${service.jwt.access-expiration}")
     private Long accessExpiration;
 
+    @Value("${spring.application.name}") // 토큰 발급자(issuer)
+    private String issuer;
+
     private Key key;
 
-    private final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.HS256;
+    private final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.HS512;
 
     @PostConstruct
     public void init() {
@@ -42,18 +42,17 @@ public class JwtUtil {
         key = Keys.hmacShaKeyFor(bytes);
     }
 
-    // 토큰 생성
-    public String createToken(String username, UserRole role) {
+    // Access Token 생성 (응답에는 "Bearer " 없이 토큰만 반환, 클라이언트가 헤더에 붙여서 전송)
+    public String createAccessToken(String username) {
         Date date = new Date();
 
-        return BEARER_PREFIX +
-                Jwts.builder()
-                        .setSubject(username) // 사용자 식별자값(ID)
-                        .claim(AUTHORIZATION_KEY, role.name()) // 사용자 권한
-                        .setExpiration(new Date(date.getTime() + accessExpiration)) // 만료 시간
-                        .setIssuedAt(date) // 발급일
-                        .signWith(key, signatureAlgorithm) // 암호화 알고리즘
-                        .compact();
+        return Jwts.builder()
+                .claim(USERNAME_KEY, username) // 사용자 식별자값(ID)
+                .issuer(issuer) // 발급자
+                .issuedAt(date) // 발급일
+                .expiration(new Date(date.getTime() + accessExpiration)) // 만료 시간
+                .signWith(key, signatureAlgorithm) // 암호화 알고리즘
+                .compact();
     }
 
     // header 에서 JWT 가져오기
