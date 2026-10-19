@@ -59,7 +59,9 @@ class JwtAuthorizationFilterTest {
         ReflectionTestUtils.setField(issuer, "accessExpiration", expirationMillis);
         ReflectionTestUtils.setField(issuer, "issuer", "user-service");
         issuer.init();
-        return issuer.createAccessToken(username);
+        User user = new User(username, "encodedPw", username + "@test.com", UserRole.USER, AffiliationType.COMPANY, UUID.fromString("00000000-0000-0000-0000-000000001000"), "slack-" + username);
+        user.setId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        return issuer.createAccessToken(user);
     }
 
     private MockHttpServletRequest requestWithToken(String token) {

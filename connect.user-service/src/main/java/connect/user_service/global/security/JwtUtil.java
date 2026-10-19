@@ -1,5 +1,6 @@
 package connect.user_service.global.security;
 
+import connect.user_service.domain.user.entity.User;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -22,6 +23,11 @@ public class JwtUtil {
     public static final String BEARER_PREFIX = "Bearer ";
     // 사용자 이름 claim KEY (발급, 검증 모두 이 값 사용)
     public static final String USERNAME_KEY = "username";
+    // Gateway 가 하위 서비스로 전달할 사용자 정보 claim KEY (X-User-* 헤더로 변환됨)
+    public static final String USER_ID_KEY = "userId";
+    public static final String ROLE_KEY = "role";
+    public static final String AFFILIATION_TYPE_KEY = "affiliationType";
+    public static final String AFFILIATION_ID_KEY = "affiliationId";
 
     @Value("${service.jwt.secret-key}") // Gateway 와 같은 Base64URL Encode 한 SecretKey
     private String secretKey;
@@ -43,11 +49,16 @@ public class JwtUtil {
     }
 
     // Access Token 생성 (응답에는 "Bearer " 없이 토큰만 반환, 클라이언트가 헤더에 붙여서 전송)
-    public String createAccessToken(String username) {
+    // 비밀번호, 이메일, Slack ID 같은 개인정보는 넣지 않음
+    public String createAccessToken(User user) {
         Date date = new Date();
 
         return Jwts.builder()
-                .claim(USERNAME_KEY, username) // 사용자 식별자값(ID)
+                .claim(USERNAME_KEY, user.getUsername()) // User Service 인증용 (JwtAuthorizationFilter)
+                .claim(USER_ID_KEY, user.getId().toString())
+                .claim(ROLE_KEY, user.getRole().name()) // MASTER, USER
+                .claim(AFFILIATION_TYPE_KEY, user.getAffiliationType().name()) // COMPANY, HUB
+                .claim(AFFILIATION_ID_KEY, user.getAffiliationId().toString())
                 .issuer(issuer) // 발급자
                 .issuedAt(date) // 발급일
                 .expiration(new Date(date.getTime() + accessExpiration)) // 만료 시간

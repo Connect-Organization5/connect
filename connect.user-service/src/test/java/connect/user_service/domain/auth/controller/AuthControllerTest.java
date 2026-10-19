@@ -33,7 +33,6 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -117,7 +116,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.id").value(idOf(2).toString()))
                 .andExpect(jsonPath("$.username").value("tester"))
                 .andExpect(jsonPath("$.access_token").doesNotExist());
-        then(jwtUtil).should(never()).createAccessToken(anyString());
+        then(jwtUtil).should(never()).createAccessToken(any(User.class));
     }
 
     @Test
@@ -138,7 +137,7 @@ class AuthControllerTest {
         signup(VALID_BODY)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("USER_ALREADY_EXISTS"));
-        then(jwtUtil).should(never()).createAccessToken(anyString());
+        then(jwtUtil).should(never()).createAccessToken(any(User.class));
     }
 
     @Test
@@ -229,7 +228,7 @@ class AuthControllerTest {
         // given
         User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID, "slack-1");
         given(userService.login(any(LoginRequestDto.class))).willReturn(user);
-        given(jwtUtil.createAccessToken("tester")).willReturn("test-token");
+        given(jwtUtil.createAccessToken(same(user))).willReturn("test-token");
 
         // when & then
         login("""
@@ -253,7 +252,7 @@ class AuthControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"))
                 .andExpect(jsonPath("$.message").value(ErrorCode.INVALID_CREDENTIALS.getMessage()));
-        then(jwtUtil).should(never()).createAccessToken(anyString());
+        then(jwtUtil).should(never()).createAccessToken(any(User.class));
     }
 
     @Test
@@ -267,7 +266,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.message").value(containsString("username")))
                 .andExpect(jsonPath("$.message").value(containsString("password")));
         then(userService).should(never()).login(any());
-        then(jwtUtil).should(never()).createAccessToken(anyString());
+        then(jwtUtil).should(never()).createAccessToken(any(User.class));
     }
 
     @Test
