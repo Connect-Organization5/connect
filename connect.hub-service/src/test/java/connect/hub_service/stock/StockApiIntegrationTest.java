@@ -1,7 +1,14 @@
 package connect.hub_service.stock;
 
+import connect.hub_service.client.company.CompanyClient;
+import connect.hub_service.client.company.dto.CompanyInfo;
+import connect.hub_service.client.company.dto.ProductInfo;
+import connect.hub_service.global.dto.ApiResponse;
 import connect.hub_service.hub.seed.HubSeedData;
 import connect.hub_service.hub.seed.HubSeedLoader;
+import feign.FeignException;
+import feign.Request;
+import feign.Response;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,14 +17,22 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -31,6 +46,9 @@ class StockApiIntegrationTest {
 
     private static final UUID SEOUL = HubSeedData.hubs().get(0).id();
     private static final UUID BUSAN = HubSeedData.hubs().get(3).id();
+    // Company 응답은 Mock이다. 서울 업체는 서울 허브, 부산 업체는 부산 허브 소속이다.
+    private static final UUID SEOUL_COMPANY = UUID.randomUUID();
+    private static final UUID BUSAN_COMPANY = UUID.randomUUID();
 
     @Autowired
     MockMvc mockMvc;
@@ -38,12 +56,28 @@ class StockApiIntegrationTest {
     HubSeedLoader hubSeedLoader;
     @Autowired
     JdbcTemplate jdbcTemplate;
+    @Autowired
+    JsonMapper jsonMapper;
+    @MockitoBean
+    CompanyClient companyClient;
 
     private final List<UUID> createdProducts = new ArrayList<>();
 
     @BeforeEach
     void seedHubs() {
         hubSeedLoader.load();
+        given(companyClient.getCompany(SEOUL_COMPANY))
+                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(SEOUL_COMPANY, SEOUL)));
+        given(companyClient.getCompany(BUSAN_COMPANY))
+                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(BUSAN_COMPANY, BUSAN)));
+        given(companyClient.getProduct(any(), any()))
+                .willAnswer(invocation -> ApiResponse.ok("상품이 조회되었습니다.", new ProductInfo(invocation.getArgument(1))));
+    }
+
+    private static FeignException feignError(int status) {
+        Request request = Request.create(Request.HttpMethod.GET, "/companies", Map.of(), null, StandardCharsets.UTF_8, null);
+        Response response = Response.builder().status(status).reason("error").request(request).headers(Map.of()).build();
+        return FeignException.errorStatus("CompanyClient", response);
     }
 
     @AfterEach
@@ -60,8 +94,14 @@ class StockApiIntegrationTest {
         return id;
     }
 
+    // 업체는 허브에 맞춰 고른다(부산 허브면 부산 업체, 그 외는 서울 업체).
     private ResultActions register(String role, UUID hubId, UUID productId, Object quantity) throws Exception {
-        String body = "{\"hubId\":" + (hubId == null ? "null" : "\"" + hubId + "\"")
+        return register(role, BUSAN.equals(hubId) ? BUSAN_COMPANY : SEOUL_COMPANY, hubId, productId, quantity);
+    }
+
+    private ResultActions register(String role, UUID companyId, UUID hubId, UUID productId, Object quantity) throws Exception {
+        String body = "{\"companyId\":" + (companyId == null ? "null" : "\"" + companyId + "\"")
+                + ",\"hubId\":" + (hubId == null ? "null" : "\"" + hubId + "\"")
                 + ",\"productId\":" + (productId == null ? "null" : "\"" + productId + "\"")
                 + ",\"quantity\":" + quantity + "}";
         var request = post("/hubs/stocks").contentType(MediaType.APPLICATION_JSON).content(body);
@@ -126,6 +166,7 @@ class StockApiIntegrationTest {
         register("MASTER", SEOUL, newProduct(), "null").andExpect(status().isBadRequest());
         register("MASTER", null, newProduct(), 1).andExpect(status().isBadRequest());
         register("MASTER", SEOUL, null, 1).andExpect(status().isBadRequest());
+        register("MASTER", null, SEOUL, newProduct(), 1).andExpect(status().isBadRequest());
         mockMvc.perform(post("/hubs/stocks").header("X-User-Role", "MASTER")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"hubId\":\"abc\",\"productId\":\"def\",\"quantity\":1}"))
@@ -167,6 +208,87 @@ class StockApiIntegrationTest {
         jdbcTemplate.update("update p_stocks set deleted_at = now() where product_id = ?", product);
 
         register("MASTER", SEOUL, product, 10).andExpect(status().isConflict());
+    }
+
+    // ---------- Company 검증 ----------
+
+    @Test
+    void 없는_업체는_404이고_재고를_만들지_않는다() throws Exception {
+        UUID company = UUID.randomUUID();
+        UUID product = newProduct();
+        given(companyClient.getCompany(company)).willThrow(feignError(404));
+
+        register("MASTER", company, SEOUL, product, 10)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("업체를 찾을 수 없습니다."));
+        assertNoStock(product);
+    }
+
+    @Test
+    void 업체에_없는_상품은_404이다() throws Exception {
+        UUID product = newProduct();
+        given(companyClient.getProduct(SEOUL_COMPANY, product)).willThrow(feignError(404));
+
+        register("MASTER", SEOUL_COMPANY, SEOUL, product, 10)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("업체의 상품을 찾을 수 없습니다."));
+        assertNoStock(product);
+    }
+
+    @Test
+    void 업체의_소속_허브가_아니면_409이다() throws Exception {
+        UUID product = newProduct();
+
+        register("MASTER", SEOUL_COMPANY, BUSAN, product, 10)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("요청한 허브가 업체의 소속 허브와 일치하지 않습니다."));
+        assertNoStock(product);
+    }
+
+    @Test
+    void Company_장애면_503이다() throws Exception {
+        UUID company = UUID.randomUUID();
+        UUID product = newProduct();
+        given(companyClient.getCompany(company)).willThrow(feignError(500));
+
+        register("MASTER", company, SEOUL, product, 10)
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message").value("업체 서비스 호출에 실패했습니다."));
+
+        given(companyClient.getProduct(SEOUL_COMPANY, product)).willThrow(feignError(503));
+        register("MASTER", SEOUL_COMPANY, SEOUL, product, 10)
+                .andExpect(status().isServiceUnavailable());
+        assertNoStock(product);
+    }
+
+    @Test
+    void 없는_허브는_Company를_호출하지_않는다() throws Exception {
+        register("MASTER", SEOUL_COMPANY, UUID.randomUUID(), newProduct(), 10)
+                .andExpect(status().isNotFound());
+
+        then(companyClient).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void Company_응답_JSON을_CompanyInfo로_읽는다() {
+        // Company CompanyResponse의 실제 필드(id, userId, hubId, name, address, createdAt). 필요 없는 필드는 무시한다.
+        String json = """
+                {"success":true,"message":"업체가 조회되었습니다.","data":{
+                  "id":"%s","userId":null,"hubId":"%s","name":"업체","address":"주소","createdAt":"2026-10-19T10:00:00"
+                },"timestamp":"2026-10-19T10:00:00"}
+                """.formatted(SEOUL_COMPANY, SEOUL);
+
+        ApiResponse<CompanyInfo> response = jsonMapper.readValue(json, new TypeReference<ApiResponse<CompanyInfo>>() {
+        });
+
+        assertThat(response.getSuccess()).isTrue();
+        assertThat(response.getData()).isEqualTo(new CompanyInfo(SEOUL_COMPANY, SEOUL));
+    }
+
+    private void assertNoStock(UUID productId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "select count(*) from p_stocks where product_id = ?", Integer.class, productId);
+        assertThat(count).isZero();
     }
 
     // ---------- DB 제약 ----------

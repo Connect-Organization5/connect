@@ -1,5 +1,6 @@
 package connect.hub_service.stock.service;
 
+import connect.hub_service.client.company.CompanyValidator;
 import connect.hub_service.global.dto.PagedResponse;
 import connect.hub_service.global.exception.BaseException;
 import connect.hub_service.global.exception.ErrorCode;
@@ -53,6 +54,7 @@ public class StockService {
     private final StockHistoryRepository stockHistoryRepository;
     private final HubRepository hubRepository;
     private final EntityManager entityManager;
+    private final CompanyValidator companyValidator;
 
     @Transactional
     public StockResponse register(String role, StockCreateRequest request) {
@@ -60,9 +62,11 @@ public class StockService {
             throw new BaseException(ErrorCode.FORBIDDEN);
         }
 
-        // 잠정: 상품 존재 검증(Company 연동)은 API 확정 후 추가한다. 현재는 UUID 형식만 확인한다.
         Hub hub = hubRepository.findById(request.hubId())
                 .orElseThrow(() -> new BaseException(ErrorCode.HUB_NOT_FOUND));
+
+        // 업체·상품이 실제로 있고 허브가 업체의 소속 허브인지 Company에 확인한다. 등록 시점에만 검증한다.
+        companyValidator.validateStockTarget(request.companyId(), hub.getId(), request.productId());
 
         // 같은 재고가 있으면 수량을 덮어쓰거나 합산하지 않고 충돌 처리한다. (삭제된 재고 포함)
         if (stockRepository.existsByHubIdAndProductId(hub.getId(), request.productId())) {
