@@ -43,6 +43,9 @@ public class Order extends TimeStamp {
     @Column(nullable = false, length = 20)
     private OrderStatus status;
 
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int stockAdjustSeq;
+
     @Builder
     private Order(UUID requesterCompanyId, UUID supplierCompanyId, UUID productId,
                   Integer quantity, String requestMessage, String receiver) {
@@ -65,6 +68,11 @@ public class Order extends TimeStamp {
         this.quantity = quantity;
         this.requestMessage = requestMessage;
         this.receiver = receiver;
+        this.stockAdjustSeq++;
+    }
+
+    public void nextStockAdjust() {
+        this.stockAdjustSeq++;
     }
 
     public void delete(UUID userId) {

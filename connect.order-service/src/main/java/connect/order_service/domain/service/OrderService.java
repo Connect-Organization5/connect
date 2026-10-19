@@ -24,6 +24,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @Slf4j
@@ -40,12 +41,11 @@ public class OrderService {
     private static final String MASTER_ROLE = "MASTER";
     private static final String MODIFIABLE_DELIVERY_STATUS = "HUB_WAITING";
 
-    public OrderResponse createOrder(UUID userId, CreateOrderRequest request) {
-        UserInfo orderer = userClient.getUser(userId);
+    public OrderResponse createOrder(UUID userId, String userAffiliationType, UUID userAffiliationId, CreateOrderRequest request) {
         OrderRequester requester =
-                switch (orderer.affiliationType()) {
-                    case "COMPANY" -> OrderRequester.from(companyClient.getSupplyCompany(orderer.affiliationId()));
-                    case "HUB" -> OrderRequester.from(hubClient.getHub(orderer.affiliationId()));
+                switch (userAffiliationType) {
+                    case "COMPANY" -> OrderRequester.from(companyClient.getSupplyCompany(userAffiliationId));
+                    case "HUB" -> OrderRequester.from(hubClient.getHub(userAffiliationId));
                     default -> throw new BaseException(ErrorCode.AFFILIATION_NOT_FOUND);
                 };
         validateProduct(request.getSupplierCompanyId(), request.getProductId());
@@ -97,7 +97,7 @@ public class OrderService {
         order.complete(deliveryId);
         orderRepository.save(order);
 
-        slackNotifyOrderCreated(orderer, supplier, order);
+        slackNotifyOrderCreated(userId, supplier, order);
 
         return OrderResponse.from(order);
     }
@@ -140,7 +140,7 @@ public class OrderService {
         return OrderResponse.from(order);
     }
 
-    public PagedResponse<OrderResponse> searchReceivedPageOrders(UUID userId, String role, int page, int size) {
+    public PagedResponse<OrderResponse> searchReceivedPageOrders(UUID userId, String role, String userAffiliationType, UUID userAffiliationId, int page, int size) {
         Pageable pageable = PageRequest.of(
                 page,
                 size,
@@ -152,11 +152,10 @@ public class OrderService {
                     .map(OrderResponse::from));
         }
 
-        UserInfo user = userClient.getUser(userId);
-        if (!"COMPANY".equals(user.affiliationType())) {
+        if (!"COMPANY".equals(userAffiliationType)) {
             throw new BaseException(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED);
         }
-        CompanyInfo company = companyClient.getSupplyCompany(user.affiliationId());
+        CompanyInfo company = companyClient.getSupplyCompany(userAffiliationId);
         if (!userId.equals(company.userId())) {
             throw new BaseException(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED);
         }
@@ -183,7 +182,7 @@ public class OrderService {
         CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
 
         // 1. 재고 조정
-        adjustStock(order.getId(), supplier, order.getProductId(), order.getQuantity(), request.getQuantity());
+        adjustStock(order.getId(), order.getStockAdjustSeq(), supplier, order.getProductId(), order.getQuantity(), request.getQuantity());
 
         // 2. 배송 수정, 실패하면 재고 조정을 되돌림
         try {
@@ -192,7 +191,9 @@ public class OrderService {
         } catch (Exception e) {
             log.error("배송 수정 실패 - orderId={}", order.getId(), e);
             try {
-                adjustStock(order.getId(), supplier, order.getProductId(), request.getQuantity(), order.getQuantity());
+                adjustStock(order.getId(), order.getStockAdjustSeq(), supplier, order.getProductId(), request.getQuantity(), order.getQuantity());
+                order.nextStockAdjust();
+                orderRepository.save(order);
             } catch (Exception ex) {
                 log.error("배송 수정 실패 후 재고 보상 실패 - orderId={}", order.getId(), ex);
             }
@@ -207,12 +208,8 @@ public class OrderService {
     public void deleteOrder(UUID userId, String role, UUID orderId) {
         Order order = findActiveOrder(orderId);
 
-        CompanyInfo supplier = null;
         if (!isMaster(role) && !userId.equals(order.getCreatedBy())) {
-            supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
-            if (!userId.equals(supplier.userId())) {
                 throw new BaseException(ErrorCode.ORDER_DELETE_DENIED);
-            }
         }
 
         // 재고 부족 등으로 이미 취소된 주문은 재고와 배송 처리 없이 삭제만
@@ -227,9 +224,7 @@ public class OrderService {
             }
             // 배송은 이미 취소됐으므로 재고 복구가 실패해도 주문은 취소 처리하고 기록을 남김
             try {
-                if (supplier == null) {
-                    supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
-                }
+                CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
                 hubClient.restoreStock(order.getId(), supplier.hubId(), order.getProductId());
             } catch (Exception e) {
                 log.error("주문 취소 후 재고 복구 실패 - orderId={}", order.getId(), e);
@@ -242,8 +237,9 @@ public class OrderService {
 
     //---------------------------------------------------------
     // 주문자와 공급 업체 담당자를 멘션해서 알림 채널에 발송
-    private void slackNotifyOrderCreated(UserInfo orderer, CompanyInfo supplier, Order order) {
+    private void slackNotifyOrderCreated(UUID ordererId, CompanyInfo supplier, Order order) {
         try {
+            UserInfo orderer = userClient.getUser(ordererId);
             UserInfo supplierManager = userClient.getUser(supplier.userId());
             slackWebhookSender.send(buildOrderCreatedMessage(order, orderer.slackId(), supplierManager.slackId()));
         } catch (Exception e) {
@@ -313,12 +309,16 @@ public class OrderService {
         }
     }
 
-    private void adjustStock(UUID orderId, CompanyInfo supplier, UUID productId, int quantity, int updateQuantity) {
+    private void adjustStock(UUID orderId, int seq, CompanyInfo supplier, UUID productId, int quantity, int updateQuantity) {
         int diff = updateQuantity - quantity;
         if (diff == 0) {
             return;
         }
-        if (!hubClient.adjustStock(orderId, supplier.hubId(), productId, diff)) {
+
+        UUID adjustmentId = UUID.nameUUIDFromBytes(
+                (orderId + ":" + seq + ":" + quantity + "->" + updateQuantity).getBytes(StandardCharsets.UTF_8));
+
+        if (!hubClient.adjustStock(adjustmentId, orderId, supplier.hubId(), productId, diff)) {
             throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
         }
     }

@@ -249,4 +249,49 @@ class LocalJwtAuthenticationFilterTest {
             assertThat(chain.forwardedHeaders().get("X-User-Role")).isNull();
         }
     }
+
+    // ---------------- 통합 Swagger 문서 경로 ----------------
+
+    @Test
+    @DisplayName("서비스 OpenAPI 문서 경로(/docs/{서비스}/v3/api-docs)는 JWT 없이 통과하고 위조 X-User-* 헤더는 제거")
+    void apiDocsPath_passesWithoutTokenAndStripsUserHeaders() {
+        MockServerWebExchange exchange = exchange("/docs/company/v3/api-docs", null,
+                "X-User-Id", UUID.randomUUID().toString(), "X-User-Role", "MASTER");
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isNull(); // 401 로 막지 않음
+        assertThat(chain.forwardedHeaders().get("X-User-Id")).isNull();
+        assertThat(chain.forwardedHeaders().get("X-User-Role")).isNull();
+    }
+
+    @Test
+    @DisplayName("StripPrefix 로 경로가 /v3/api-docs 로 바뀐 뒤에도 원래 요청 경로로 문서 요청을 판단")
+    void apiDocsPath_afterStripPrefix_usesOriginalPath() {
+        MockServerWebExchange exchange = exchange("/v3/api-docs", null);
+        exchange.getAttributes().put(
+                org.springframework.cloud.gateway.support.ServerWebExchangeUtils.GATEWAY_ORIGINAL_REQUEST_URL_ATTR,
+                new java.util.LinkedHashSet<>(java.util.List.of(java.net.URI.create("http://localhost:8080/docs/company/v3/api-docs"))));
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+        assertThat(chain.exchange).isNotNull();
+    }
+
+    @Test
+    @DisplayName("문서 경로와 비슷하지만 정확히 일치하지 않는 경로는 JWT 가 필요 (실제 API·내부 API 우회 방지)")
+    void nonDocsPaths_stillRequireToken() {
+        for (String path : new String[]{
+                "/docs/company/v3/api-docs/swagger-config",
+                "/docs/company/internal/companies",
+                "/docs/company/companies",
+                "/docs/company/v3/api-docs/../../companies",
+                "/v3/api-docs",
+                "/companies",
+                "/users/me"}) {
+            chain = new CapturingChain();
+            assertUnauthorized("UNAUTHORIZED", exchange(path, null));
+        }
+    }
 }
