@@ -23,7 +23,6 @@ public class Company extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(nullable = false)
     private UUID userId;
 
     @Column(nullable = false)
@@ -50,6 +49,11 @@ public class Company extends BaseEntity {
         this.hubId = hubId;
         this.name = name;
         this.address = address;
+    }
+
+    // 관리자 미지정 업체에 처음 연결된 사용자를 관리자로 지정
+    public void assignManager(UUID userId) {
+        this.userId = userId;
     }
 
     public void delete(UUID deletedBy) {

@@ -6,7 +6,6 @@ import connect.user_service.domain.user.dto.response.UpdateUserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.security.JwtUtil;
-import connect.user_service.global.security.UserDetailsImpl;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -15,7 +14,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
@@ -28,11 +26,10 @@ public class AuthController {
 
     private final UserService userService;
 
-    // MASTER 가 같은 소속의 회원을 생성 (생성된 회원의 토큰은 발급하지 않음)
+    // 로그인 없이 회원가입 (USER 권한으로 생성, 토큰은 발급하지 않으므로 가입 후 /auth/login 으로 로그인)
     @PostMapping("/signup")
-    public ResponseEntity<UpdateUserResponse> signup(@Valid @RequestBody SignUpRequestDto requestDto,
-                                                     @AuthenticationPrincipal UserDetailsImpl userDetails) {
-        UpdateUserResponse response = userService.signup(requestDto, userDetails.getUser());
+    public ResponseEntity<UpdateUserResponse> signup(@Valid @RequestBody SignUpRequestDto requestDto) {
+        UpdateUserResponse response = userService.signup(requestDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

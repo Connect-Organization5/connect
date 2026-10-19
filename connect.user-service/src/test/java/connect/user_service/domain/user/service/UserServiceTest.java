@@ -58,11 +58,6 @@ class UserServiceTest {
         return request;
     }
 
-    // 회원 생성 요청자 (signUpRequest 와 같은 소속의 MASTER)
-    private User masterRequester() {
-        return userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
-    }
-
     private LoginRequestDto loginRequest(String username, String password) {
         LoginRequestDto request = new LoginRequestDto();
         request.setUsername(username);
@@ -114,7 +109,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원가입 성공 - MASTER 가 같은 소속 회원을 암호화된 비밀번호와 USER 권한으로 저장")
+    @DisplayName("회원가입 성공 - 로그인 없이 요청한 소속으로 암호화된 비밀번호와 USER 권한으로 저장")
     void signup_success() {
         // given
         SignUpRequestDto request = signUpRequest();
@@ -124,7 +119,7 @@ class UserServiceTest {
         given(passwordEncoder.encode("password1!")).willReturn("encodedPw");
 
         // when
-        UpdateUserResponse response = userService.signup(request, masterRequester());
+        UpdateUserResponse response = userService.signup(request);
 
         // then
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
@@ -141,56 +136,13 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원가입 실패 - USER 가 요청하면 USER_ACCESS_DENIED, 중복 확인도 하지 않음")
-    void signup_userRole() {
-        // given
-        User requester = userOf(1, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
-
-        // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest(), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        then(userRepository).shouldHaveNoInteractions();
-        then(passwordEncoder).shouldHaveNoInteractions();
-    }
-
-    @Test
-    @DisplayName("회원가입 실패 - MASTER 라도 소속 유형이 다르면 USER_ACCESS_DENIED")
-    void signup_differentAffiliationType() {
-        // given
-        User requester = userOf(1, UserRole.MASTER, AffiliationType.HUB, AFFILIATION_ID);
-
-        // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest(), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        then(userRepository).shouldHaveNoInteractions();
-    }
-
-    @Test
-    @DisplayName("회원가입 실패 - MASTER 라도 소속 ID 가 다르면 USER_ACCESS_DENIED")
-    void signup_differentAffiliationId() {
-        // given
-        User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID);
-
-        // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest(), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        then(userRepository).shouldHaveNoInteractions();
-    }
-
-    @Test
     @DisplayName("회원가입 실패 - username 중복")
     void signup_duplicateUsername() {
         // given
         given(userRepository.existsByUsername("tester")).willReturn(true);
 
         // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest(), masterRequester()))
+        assertThatThrownBy(() -> userService.signup(signUpRequest()))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_ALREADY_EXISTS);
@@ -206,7 +158,7 @@ class UserServiceTest {
         given(userRepository.existsByEmail("tester@test.com")).willReturn(true);
 
         // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest(), masterRequester()))
+        assertThatThrownBy(() -> userService.signup(signUpRequest()))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.EMAIL_ALREADY_EXISTS);
@@ -222,7 +174,7 @@ class UserServiceTest {
         given(userRepository.existsBySlackId("slack-1")).willReturn(true);
 
         // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest(), masterRequester()))
+        assertThatThrownBy(() -> userService.signup(signUpRequest()))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SLACK_ID_ALREADY_EXISTS);
@@ -787,6 +739,40 @@ class UserServiceTest {
 
         // when & then
         assertThatThrownBy(() -> userService.deleteUser(idOf(2), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_NOT_FOUND);
+    }
+
+    // ===== 다른 서비스에 회원 정보 전달 =====
+
+    @Test
+    @DisplayName("회원 정보 전달 성공 - userId 로 조회한 회원 정보를 반환")
+    void sendUser_success() {
+        // given
+        User user = userOf(2, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
+        given(userRepository.findById(idOf(2))).willReturn(Optional.of(user));
+
+        // when
+        UpdateUserResponse response = userService.sendUser(idOf(2));
+
+        // then
+        assertThat(response.id()).isEqualTo(idOf(2));
+        assertThat(response.username()).isEqualTo("user2");
+        assertThat(response.email()).isEqualTo("user2@test.com");
+        assertThat(response.affiliationType()).isEqualTo(AffiliationType.COMPANY);
+        assertThat(response.affiliationId()).isEqualTo(AFFILIATION_ID);
+        assertThat(response.slackId()).isEqualTo("slack-2");
+    }
+
+    @Test
+    @DisplayName("회원 정보 전달 실패 - 없거나 삭제된 회원이면 USER_NOT_FOUND")
+    void sendUser_notFound() {
+        // given
+        given(userRepository.findById(idOf(999))).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> userService.sendUser(idOf(999)))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_NOT_FOUND);

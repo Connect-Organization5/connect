@@ -37,9 +37,11 @@ public class AuthConfig {
         // 요청에 대한 접근 권한을 설정합니다.
         http
                 .authorizeHttpRequests(authorize -> authorize
-                        // /auth/login 경로에 대한 접근을 허용합니다. 이 경로는 인증 없이 접근할 수 있습니다.
-                        .requestMatchers("/auth/login").permitAll()
-                        // 그 외의 모든 요청은 인증이 필요합니다. (/auth/signup 은 MASTER 가 회원을 생성하므로 인증 필요)
+                        // /auth/login, /auth/signup 경로에 대한 접근을 허용합니다. 이 경로는 인증 없이 접근할 수 있습니다.
+                        .requestMatchers("/auth/login", "/auth/signup").permitAll()
+                        // 서비스 간 내부 호출(/internal/**)은 JWT 없이 허용. gateway 라우트에 없어서 외부에서는 접근할 수 없음
+                        .requestMatchers("/internal/**").permitAll()
+                        // 그 외의 모든 요청은 인증이 필요합니다.
                         .anyRequest().authenticated()
                 );
 

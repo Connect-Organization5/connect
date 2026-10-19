@@ -31,19 +31,13 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    // 회원 생성 (MASTER 만 가능, 요청자와 같은 소속의 회원만 생성 가능)
+    // 회원가입 (로그인 없이 누구나 가입 가능, 권한은 항상 USER)
     @Transactional
-    public UpdateUserResponse signup(SignUpRequestDto requestDto, User requester) {
-        // 1. 권한 확인 (중복 확인 전에 거부해서 username, email, slackId 의 존재 여부를 노출하지 않음)
-        validateMaster(requester);
-
-        // 2. 소속 확인
-        validateSameAffiliation(requester, requestDto.getAffiliationType(), requestDto.getAffiliationId());
-
+    public UpdateUserResponse signup(SignUpRequestDto requestDto) {
         String username = requestDto.getUsername();
         String email = requestDto.getEmail();
 
-        // 3. 회원 중복 확인
+        // 1. 회원 중복 확인
         if (userRepository.existsByUsername(username)) {
             throw new BaseException(ErrorCode.USER_ALREADY_EXISTS);
         }
@@ -61,7 +55,7 @@ public class UserService {
         // 중복 확인을 통과한 경우에만 비밀번호 암호화
         String password = passwordEncoder.encode(requestDto.getPassword());
 
-        // 4. 사용자 등록 (createdBy 는 JPA Auditing 이 요청자 id 로 기록)
+        // 2. 사용자 등록 (로그인 전 요청이라 createdBy 는 null)
         User user = new User(username, password, email, UserRole.USER, requestDto.getAffiliationType(), requestDto.getAffiliationId(), requestDto.getSlackId());
         userRepository.save(user);
 
@@ -207,6 +201,14 @@ public class UserService {
     }
 
 
+    @Transactional(readOnly = true)
+    public UpdateUserResponse sendUser(UUID userId) {
+        // 대상 회원 조회
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
+
+        return UpdateUserResponse.from(user);
+    }
 }
 
 

@@ -25,6 +25,8 @@ public enum ErrorCode {
 
     // hub
     HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "허브를 찾을 수 없습니다."),
+    HUB_ROUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "허브 간 이동 경로를 찾을 수 없습니다."),
+    HUB_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "허브 서비스 호출에 실패했습니다."),
 
     // delivery
     DELIVERY_NOT_FOUND(HttpStatus.NOT_FOUND, "배송을 찾을 수 없습니다."),

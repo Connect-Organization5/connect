@@ -1,11 +1,15 @@
 package connect.delivery_service.client;
 
-import lombok.Getter;
-
 import java.math.BigDecimal;
+import java.util.UUID;
 
-@Getter
-public class HubRouteResponse {
-    private BigDecimal estimatedDistance;
-    private Integer estimatedDuration;
+// hub-service GET /hubs/routes/{departureHubId}/{arrivalHubId} 응답의 data
+// distance(km), duration(분)
+public record HubRouteResponse(
+        UUID routeId,
+        UUID departureHubId,
+        UUID arrivalHubId,
+        BigDecimal distance,
+        Integer duration
+) {
 }
