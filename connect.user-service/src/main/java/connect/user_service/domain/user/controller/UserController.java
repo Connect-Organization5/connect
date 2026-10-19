@@ -5,8 +5,11 @@ import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
 import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.service.UserService;
+import connect.user_service.global.dto.PageResponse;
 import connect.user_service.global.security.UserDetailsImpl;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,15 +24,20 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping("/{userId}")
-    public ResponseEntity<UserResponse> getUser(@PathVariable Long userId) {
-        UserResponse response = userService.getUser(userId);
+    public ResponseEntity<UserResponse> getUser(@PathVariable Long userId,
+                                                @AuthenticationPrincipal UserDetailsImpl userDetails) {
+        UserResponse response = userService.getUser(userId, userDetails.getUser());
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
     @GetMapping
-    public ResponseEntity<?> getAllUsers(@RequestParam int page, @RequestParam int size) {
-
-        return null;
+    public ResponseEntity<PageResponse<UserResponse>> getAllUsers(
+            @RequestParam(defaultValue = "0") @Min(value = 0, message = "page 는 0 이상이어야 합니다.") int page,
+            @RequestParam(defaultValue = "10") @Min(value = 1, message = "size 는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "size 는 100 이하여야 합니다.") int size,
+            @AuthenticationPrincipal UserDetailsImpl userDetails) {
+        PageResponse<UserResponse> response = userService.getAllUsers(userDetails.getUser(), page, size);
+        return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
     @PutMapping("/{userId}")

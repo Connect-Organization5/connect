@@ -7,6 +7,7 @@ import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.repository.UserRepository;
+import connect.user_service.global.dto.PageResponse;
 import connect.user_service.global.exception.BaseException;
 import connect.user_service.global.exception.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -16,9 +17,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -174,34 +178,125 @@ class UserServiceTest {
         then(userRepository).should(never()).save(any());
     }
 
+    // ===== 회원 단건 조회 =====
+
     @Test
-    @DisplayName("회원 단건 조회 성공")
-    void getUser_success() {
+    @DisplayName("회원 단건 조회 성공 - USER 는 본인 정보 조회 가능")
+    void getUser_userSelf() {
         // given
-        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, "COMPANY", 1L, "slack-1");
-        user.setId(1L);
-        given(userRepository.findById(1L)).willReturn(Optional.of(user));
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+        User self = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(1L)).willReturn(Optional.of(self));
 
         // when
-        UserResponse response = userService.getUser(1L);
+        UserResponse response = userService.getUser(1L, requester);
 
         // then
         assertThat(response.id()).isEqualTo(1L);
-        assertThat(response.username()).isEqualTo("tester");
-        assertThat(response.email()).isEqualTo("tester@test.com");
+        assertThat(response.username()).isEqualTo("user1");
+        assertThat(response.email()).isEqualTo("user1@test.com");
         assertThat(response.affiliationType()).isEqualTo("COMPANY");
-        assertThat(response.affiliationId()).isEqualTo(1L);
+        assertThat(response.affiliationId()).isEqualTo(AFFILIATION_ID);
         assertThat(response.slackId()).isEqualTo("slack-1");
     }
 
     @Test
-    @DisplayName("회원 단건 조회 실패 - 존재하지 않는 회원")
-    void getUser_notFound() {
+    @DisplayName("회원 단건 조회 실패 - USER 가 다른 회원을 조회하면 USER_ACCESS_DENIED, 대상 회원은 조회하지 않음")
+    void getUser_userOther() {
         // given
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.getUser(2L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("회원 단건 조회 실패 - USER 가 없는 회원을 조회해도 404 가 아닌 USER_ACCESS_DENIED")
+    void getUser_userOtherNotExisting() {
+        // given
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.getUser(999L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("회원 단건 조회 성공 - MASTER 는 같은 소속 회원 조회 가능")
+    void getUser_masterSameAffiliation() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", Long.valueOf(AFFILIATION_ID));
+        User target = userOf(2L, UserRole.USER, "COMPANY", Long.valueOf(AFFILIATION_ID));
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+
+        // when
+        UserResponse response = userService.getUser(2L, requester);
+
+        // then
+        assertThat(response.id()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("회원 단건 조회 성공 - MASTER 는 본인 정보 조회 가능")
+    void getUser_masterSelf() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User self = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(1L)).willReturn(Optional.of(self));
+
+        // when
+        UserResponse response = userService.getUser(1L, requester);
+
+        // then
+        assertThat(response.id()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("회원 단건 조회 실패 - MASTER 라도 소속 유형이 다르면 USER_ACCESS_DENIED")
+    void getUser_masterDifferentAffiliationType() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "HUB", AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+
+        // when & then
+        assertThatThrownBy(() -> userService.getUser(2L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("회원 단건 조회 실패 - MASTER 라도 소속 ID 가 다르면 USER_ACCESS_DENIED")
+    void getUser_masterDifferentAffiliationId() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "COMPANY", AFFILIATION_ID + 1);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+
+        // when & then
+        assertThatThrownBy(() -> userService.getUser(2L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("회원 단건 조회 실패 - MASTER 가 없는 회원을 조회하면 USER_NOT_FOUND")
+    void getUser_masterNotFound() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
         given(userRepository.findById(999L)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> userService.getUser(999L))
+        assertThatThrownBy(() -> userService.getUser(999L, requester))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_NOT_FOUND);
@@ -378,6 +473,64 @@ class UserServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SLACK_ID_ALREADY_EXISTS);
         then(passwordEncoder).should(never()).encode(any());
+    }
+
+    // ===== 회원 목록 조회 =====
+
+    @Test
+    @DisplayName("회원 목록 조회 성공 - 요청자 소속, MASTER 우선 정렬 기준, page/size 로 조회")
+    void getAllUsers_success() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User member = userOf(2L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findAllByAffiliation(eq("COMPANY"), eq(AFFILIATION_ID), eq(UserRole.MASTER), any(Pageable.class)))
+                .willAnswer(invocation -> new PageImpl<>(List.of(requester, member), invocation.getArgument(3), 12));
+
+        // when
+        PageResponse<UserResponse> response = userService.getAllUsers(requester, 1, 10);
+
+        // then
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        then(userRepository).should().findAllByAffiliation(eq("COMPANY"), eq(AFFILIATION_ID), eq(UserRole.MASTER), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(1);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(10);
+
+        assertThat(response.content()).extracting(UserResponse::id).containsExactly(1L, 2L);
+        assertThat(response.page()).isEqualTo(1);
+        assertThat(response.size()).isEqualTo(10);
+        assertThat(response.totalElements()).isEqualTo(12);
+        assertThat(response.totalPages()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("회원 목록 조회 - 결과가 없으면 빈 목록")
+    void getAllUsers_empty() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findAllByAffiliation(eq("COMPANY"), eq(AFFILIATION_ID), eq(UserRole.MASTER), any(Pageable.class)))
+                .willAnswer(invocation -> new PageImpl<User>(List.of(), invocation.getArgument(3), 0));
+
+        // when
+        PageResponse<UserResponse> response = userService.getAllUsers(requester, 0, 10);
+
+        // then
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isZero();
+        assertThat(response.totalPages()).isZero();
+    }
+
+    @Test
+    @DisplayName("회원 목록 조회 실패 - USER 권한이면 USER_ACCESS_DENIED, Repository 는 호출하지 않음")
+    void getAllUsers_userRole() {
+        // given
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.getAllUsers(requester, 0, 10))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).findAllByAffiliation(any(), any(), any(), any());
     }
 
     // ===== 회원 삭제 (논리적 삭제) =====

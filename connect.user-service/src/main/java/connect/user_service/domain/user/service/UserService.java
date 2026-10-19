@@ -7,9 +7,12 @@ import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.repository.UserRepository;
+import connect.user_service.global.dto.PageResponse;
 import connect.user_service.global.exception.BaseException;
 import connect.user_service.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,13 +71,39 @@ public class UserService {
         return user;
     }
 
-    // 회원 단건 조회
+    // 회원 단건 조회 (USER 는 본인만, MASTER 는 같은 소속 회원만)
     @Transactional(readOnly = true)
-    public UserResponse getUser(Long userId) {
+    public UserResponse getUser(Long userId, User requester) {
+        // 1. USER 가 다른 회원을 조회하면 거부 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
+        if (requester.getRole() != ROLE_MASTER && !Objects.equals(requester.getId(), userId)) {
+            throw new BaseException(ErrorCode.USER_ACCESS_DENIED);
+        }
+
+        // 2. 대상 회원 조회
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
+        // 3. MASTER 는 같은 소속 회원만 조회 가능 (본인은 항상 같은 소속)
+        validateSameAffiliation(requester, user);
+
         return UserResponse.from(user);
+    }
+
+    // 회원 목록 조회 (MASTER 만 가능, 요청자와 같은 소속의 모든 회원)
+    @Transactional(readOnly = true)
+    public PageResponse<UserResponse> getAllUsers(User requester, int page, int size) {
+        // 1. 권한 확인
+        validateMaster(requester);
+
+        // 2. 요청자의 소속으로 조회 (정렬은 Repository 쿼리에 고정: MASTER 먼저 → createdAt 내림차순)
+        Page<User> users = userRepository.findAllByAffiliation(
+                requester.getAffiliationType(),
+                requester.getAffiliationId(),
+                ROLE_MASTER,
+                PageRequest.of(page, size)
+        );
+
+        return PageResponse.from(users.map(UserResponse::from));
     }
 
     // 회원 정보 수정 (MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 수정 가능)

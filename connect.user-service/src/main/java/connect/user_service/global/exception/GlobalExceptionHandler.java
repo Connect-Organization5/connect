@@ -10,6 +10,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.stream.Collectors;
@@ -37,6 +38,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .collect(Collectors.joining(", "));
+        return toResponse(ErrorResponse.of(ErrorCode.VALIDATION_FAILED, message));
+    }
+
+    // @RequestParam, @PathVariable 의 @Min, @Max 등 검증 실패
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ErrorResponse> handleMethodValidation(HandlerMethodValidationException e) {
+        String message = e.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream()
+                        .map(error -> result.getMethodParameter().getParameterName() + ": " + error.getDefaultMessage()))
                 .collect(Collectors.joining(", "));
         return toResponse(ErrorResponse.of(ErrorCode.VALIDATION_FAILED, message));
     }

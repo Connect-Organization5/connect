@@ -1,6 +1,9 @@
 package connect.user_service.domain.user.repository;
 
 import connect.user_service.domain.user.entity.User;
+import connect.user_service.domain.user.entity.UserRole;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -18,6 +21,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // 회원 정보 수정 시 자기 자신을 제외한 중복 확인
     boolean existsByEmailAndIdNot(String email, Long id);
     boolean existsBySlackIdAndIdNot(String slackId, Long id);
+
+    // 같은 소속의 모든 회원 조회 (삭제된 회원은 @SQLRestriction 으로 제외)
+    // 정렬: MASTER 먼저 → createdAt 내림차순 (값이 없는 기존 회원은 마지막) → id 내림차순 (같은 시각일 때 순서 고정)
+    @Query(value = "SELECT u FROM User u " +
+            "WHERE u.affiliationType = :affiliationType AND u.affiliationId = :affiliationId " +
+            "ORDER BY CASE WHEN u.role = :firstRole THEN 0 ELSE 1 END, " +
+            "u.createdAt DESC NULLS LAST, u.id DESC",
+            countQuery = "SELECT COUNT(u) FROM User u " +
+                    "WHERE u.affiliationType = :affiliationType AND u.affiliationId = :affiliationId")
+    Page<User> findAllByAffiliation(@Param("affiliationType") String affiliationType,
+                                    @Param("affiliationId") Long affiliationId,
+                                    @Param("firstRole") UserRole firstRole,
+                                    Pageable pageable);
 
     // 논리적 삭제: deleted_at, deleted_by 만 변경 (JPA Auditing 을 거치지 않아 updated_at, updated_by 는 그대로)
     // 이미 삭제된 회원이면 0 반환

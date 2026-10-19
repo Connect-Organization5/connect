@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -149,6 +151,90 @@ class UserRepositoryTest {
         assertThat(saved.getCreatedAt()).isEqualTo(createdAt);
         assertThat(saved.getCreatedBy()).isNull();
         assertThat(saved.getDeletedAt()).isNull();
+    }
+
+    // ===== 같은 소속 회원 목록 조회 =====
+
+    private User member(String username, UserRole role, String affiliationType, Long affiliationId) {
+        return new User(username, "encodedPw", username + "@test.com", role, affiliationType, affiliationId, "slack-" + username);
+    }
+
+    // Auditing 이 채운 created_at 을 원하는 값으로 바꿔서 정렬 검증 (null 이면 Auditing 적용 전 기존 회원)
+    private void setCreatedAt(Long id, LocalDateTime createdAt) {
+        entityManager.createNativeQuery("UPDATE users SET created_at = ? WHERE id = ?")
+                .setParameter(1, createdAt)
+                .setParameter(2, id)
+                .executeUpdate();
+    }
+
+    @Test
+    @DisplayName("같은 소속의 USER, MASTER 모두 조회 - 다른 소속과 삭제된 회원은 제외")
+    void findAllByAffiliation_filters() {
+        // given
+        User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, "COMPANY", 1000L));
+        User user1 = userRepository.saveAndFlush(member("user1", UserRole.USER, "COMPANY", 1000L));
+        userRepository.saveAndFlush(member("otherType", UserRole.USER, "HUB", 1000L));
+        userRepository.saveAndFlush(member("otherId", UserRole.USER, "COMPANY", 2000L));
+        User deleted = userRepository.saveAndFlush(member("deleted", UserRole.USER, "COMPANY", 1000L));
+        userRepository.softDeleteById(deleted.getId(), 1L, LocalDateTime.now());
+
+        // when
+        Page<User> result = userRepository.findAllByAffiliation("COMPANY", 1000L, UserRole.MASTER, PageRequest.of(0, 10));
+
+        // then
+        assertThat(result.getContent()).extracting(User::getId)
+                .containsExactlyInAnyOrder(master.getId(), user1.getId());
+        assertThat(result.getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("정렬 - MASTER 먼저, 그다음 createdAt 내림차순, createdAt 이 없는 회원은 마지막")
+    void findAllByAffiliation_sort() {
+        // given: id 순서와 created_at 순서를 일부러 다르게 설정
+        User oldMaster = userRepository.saveAndFlush(member("oldMaster", UserRole.MASTER, "COMPANY", 1000L));
+        User newUser = userRepository.saveAndFlush(member("newUser", UserRole.USER, "COMPANY", 1000L));
+        User legacyUser = userRepository.saveAndFlush(member("legacyUser", UserRole.USER, "COMPANY", 1000L));
+        User oldUser = userRepository.saveAndFlush(member("oldUser", UserRole.USER, "COMPANY", 1000L));
+        User newMaster = userRepository.saveAndFlush(member("newMaster", UserRole.MASTER, "COMPANY", 1000L));
+
+        LocalDateTime base = LocalDateTime.of(2026, 1, 1, 0, 0);
+        setCreatedAt(oldMaster.getId(), base);
+        setCreatedAt(newMaster.getId(), base.plusDays(3));
+        setCreatedAt(oldUser.getId(), base.plusDays(1));
+        setCreatedAt(newUser.getId(), base.plusDays(5));
+        setCreatedAt(legacyUser.getId(), null);
+        entityManager.clear();
+
+        // when
+        Page<User> result = userRepository.findAllByAffiliation("COMPANY", 1000L, UserRole.MASTER, PageRequest.of(0, 10));
+
+        // then
+        assertThat(result.getContent()).extracting(User::getUsername)
+                .containsExactly("newMaster", "oldMaster", "newUser", "oldUser", "legacyUser");
+    }
+
+    @Test
+    @DisplayName("페이지 나누기 - 정렬 순서대로 나뉘고 totalElements, totalPages 가 맞음")
+    void findAllByAffiliation_paging() {
+        // given: 같은 소속 회원 5명 (MASTER 1, USER 4)
+        LocalDateTime base = LocalDateTime.of(2026, 1, 1, 0, 0);
+        User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, "COMPANY", 1000L));
+        setCreatedAt(master.getId(), base);
+        for (int i = 1; i <= 4; i++) {
+            User user = userRepository.saveAndFlush(member("user" + i, UserRole.USER, "COMPANY", 1000L));
+            setCreatedAt(user.getId(), base.plusDays(i));
+        }
+        entityManager.clear();
+
+        // when
+        Page<User> first = userRepository.findAllByAffiliation("COMPANY", 1000L, UserRole.MASTER, PageRequest.of(0, 2));
+        Page<User> last = userRepository.findAllByAffiliation("COMPANY", 1000L, UserRole.MASTER, PageRequest.of(2, 2));
+
+        // then
+        assertThat(first.getContent()).extracting(User::getUsername).containsExactly("master", "user4");
+        assertThat(last.getContent()).extracting(User::getUsername).containsExactly("user1");
+        assertThat(first.getTotalElements()).isEqualTo(5);
+        assertThat(first.getTotalPages()).isEqualTo(3);
     }
 
     // ===== 논리적 삭제 =====

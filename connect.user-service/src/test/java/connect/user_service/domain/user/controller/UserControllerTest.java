@@ -5,6 +5,7 @@ import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.service.UserService;
+import connect.user_service.global.dto.PageResponse;
 import connect.user_service.global.exception.BaseException;
 import connect.user_service.global.exception.ErrorCode;
 import connect.user_service.global.exception.GlobalExceptionHandler;
@@ -25,8 +26,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.List;
+
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.BDDMockito.given;
@@ -75,11 +79,11 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("GET /users/{userId} - 회원 단건 조회 성공")
+    @DisplayName("GET /users/{userId} - 회원 단건 조회 성공, 로그인 회원을 요청자로 전달")
     void getUser_success() throws Exception {
         // given
         UserResponse response = new UserResponse(1L, "tester", "encodedPw", "tester@test.com", "COMPANY", 1L, "slack-1");
-        given(userService.getUser(1L)).willReturn(response);
+        given(userService.getUser(eq(1L), same(loginUser))).willReturn(response);
 
         // when & then
         mockMvc.perform(get("/users/{userId}", 1L))
@@ -96,7 +100,7 @@ class UserControllerTest {
     @DisplayName("GET /users/{userId} - 존재하지 않는 회원이면 404")
     void getUser_notFound() throws Exception {
         // given
-        given(userService.getUser(999L)).willThrow(new BaseException(ErrorCode.USER_NOT_FOUND));
+        given(userService.getUser(eq(999L), any(User.class))).willThrow(new BaseException(ErrorCode.USER_NOT_FOUND));
 
         // when & then
         mockMvc.perform(get("/users/{userId}", 999L))
@@ -104,6 +108,18 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value(ErrorCode.USER_NOT_FOUND.getMessage()));
+    }
+
+    @Test
+    @DisplayName("GET /users/{userId} - 다른 회원 조회 권한이 없으면 403 USER_ACCESS_DENIED")
+    void getUser_accessDenied() throws Exception {
+        // given
+        given(userService.getUser(eq(2L), any(User.class))).willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED));
+
+        // when & then
+        mockMvc.perform(get("/users/{userId}", 2L))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("USER_ACCESS_DENIED"));
     }
 
     @Test
@@ -199,6 +215,102 @@ class UserControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         then(userService).should(never()).updateUser(any(), any(), any());
+    }
+
+    // ===== GET /users?page=&size= =====
+
+    @Test
+    @DisplayName("GET /users - 성공 시 200 과 PageResponse 형식, 로그인 회원을 요청자로 전달")
+    void getAllUsers_success() throws Exception {
+        // given
+        PageResponse<UserResponse> response = new PageResponse<>(
+                List.of(new UserResponse(1L, "master", "encodedPw", "master@test.com", "COMPANY", 1000L, "slack-master"),
+                        new UserResponse(2L, "tester", "encodedPw", "tester@test.com", "COMPANY", 1000L, "slack-1")),
+                1, 2, 5, 3);
+        given(userService.getAllUsers(same(loginUser), eq(1), eq(2))).willReturn(response);
+
+        // when & then
+        mockMvc.perform(get("/users").param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(1L))
+                .andExpect(jsonPath("$.content[1].id").value(2L))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.totalPages").value(3));
+    }
+
+    @Test
+    @DisplayName("GET /users - page, size 를 생략하면 기본값 0, 10")
+    void getAllUsers_defaultParams() throws Exception {
+        // given
+        given(userService.getAllUsers(same(loginUser), eq(0), eq(10)))
+                .willReturn(new PageResponse<>(List.of(), 0, 10, 0, 0));
+
+        // when & then
+        mockMvc.perform(get("/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
+        then(userService).should().getAllUsers(same(loginUser), eq(0), eq(10));
+    }
+
+    @Test
+    @DisplayName("GET /users - USER 권한이면 403 USER_ACCESS_DENIED")
+    void getAllUsers_accessDenied() throws Exception {
+        // given
+        given(userService.getAllUsers(any(User.class), eq(0), eq(10)))
+                .willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED));
+
+        // when & then
+        mockMvc.perform(get("/users"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("USER_ACCESS_DENIED"));
+    }
+
+    @Test
+    @DisplayName("GET /users - page 가 음수면 400 VALIDATION_FAILED")
+    void getAllUsers_negativePage() throws Exception {
+        mockMvc.perform(get("/users").param("page", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").value(containsString("page")));
+        then(userService).should(never()).getAllUsers(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("GET /users - size 가 0 이거나 100 초과면 400 VALIDATION_FAILED")
+    void getAllUsers_invalidSize() throws Exception {
+        mockMvc.perform(get("/users").param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").value(containsString("size")));
+        mockMvc.perform(get("/users").param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").value(containsString("size")));
+        then(userService).should(never()).getAllUsers(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("GET /users - size 100 은 허용")
+    void getAllUsers_maxSize() throws Exception {
+        // given
+        given(userService.getAllUsers(same(loginUser), eq(0), eq(100)))
+                .willReturn(new PageResponse<>(List.of(), 0, 100, 0, 0));
+
+        // when & then
+        mockMvc.perform(get("/users").param("size", "100"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("GET /users - page 가 숫자가 아니면 400 INVALID_INPUT")
+    void getAllUsers_nonNumericPage() throws Exception {
+        mockMvc.perform(get("/users").param("page", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        then(userService).should(never()).getAllUsers(any(), anyInt(), anyInt());
     }
 
     // ===== DELETE /users/{userId} =====
