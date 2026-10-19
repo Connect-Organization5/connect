@@ -1,5 +1,6 @@
 package connect.company_service.company.controller;
 
+import connect.company_service.company.controller.docs.InternalCompanyControllerDocs;
 import connect.company_service.company.dto.request.AssignManagerRequest;
 import connect.company_service.company.dto.request.InternalCreateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -23,7 +24,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/internal/companies")
 @RequiredArgsConstructor
-public class InternalCompanyController {
+public class InternalCompanyController implements InternalCompanyControllerDocs {
 
     private final CompanyService companyService;
 

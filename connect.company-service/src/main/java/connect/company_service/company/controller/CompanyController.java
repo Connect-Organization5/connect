@@ -1,5 +1,6 @@
 package connect.company_service.company.controller;
 
+import connect.company_service.company.controller.docs.CompanyControllerDocs;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -26,7 +27,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/companies")
 @RequiredArgsConstructor
-public class CompanyController {
+public class CompanyController implements CompanyControllerDocs {
 
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String USER_ROLE_HEADER = "X-User-Role";

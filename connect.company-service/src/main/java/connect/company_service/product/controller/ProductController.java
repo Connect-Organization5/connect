@@ -1,5 +1,6 @@
 package connect.company_service.product.controller;
 
+import connect.company_service.product.controller.docs.ProductControllerDocs;
 import connect.company_service.global.dto.ApiResponse;
 import connect.company_service.global.dto.PagedResponse;
 import connect.company_service.global.exception.BaseException;
@@ -32,7 +33,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/companies/{companyId}/products")
 @RequiredArgsConstructor
-public class ProductController {
+public class ProductController implements ProductControllerDocs {
 
     // Gateway가 JWT 검증 후 전달하는 사용자 정보 헤더
     private static final String USER_ID_HEADER = "X-User-Id";
