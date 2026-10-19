@@ -39,11 +39,13 @@ public class CompanyService {
 
     // 업체 생성
     @Transactional
-    public CompanyResponse createCompany(UUID userId, String userRole, CreateCompanyRequest request) {
-        // USER가 만들면 본인이 관리자, MASTER가 만들면 관리자 미지정(null)
-        UUID managerId = ROLE_MASTER.equals(userRole) ? null : userId;
+    public CompanyResponse createCompany(String userRole, CreateCompanyRequest request) {
+        // 업체 생성은 MASTER만 가능. 관리자는 첫 가입자가 내부 API(assignManager)로 지정된다
+        if (!ROLE_MASTER.equals(userRole)) {
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
+        }
 
-        return saveCompany(managerId, request.hubId(), request.name(), request.address());
+        return saveCompany(null, request.hubId(), request.name(), request.address());
     }
 
     // 회원가입 시 업체 생성 (user-service 내부 호출). 가입하는 사용자가 관리자가 된다

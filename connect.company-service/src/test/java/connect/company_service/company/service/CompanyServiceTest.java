@@ -105,7 +105,7 @@ class CompanyServiceTest {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
             given(companyRepository.save(any(Company.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-            CompanyResponse response = companyService.createCompany(userId, ROLE_MASTER, request);
+            CompanyResponse response = companyService.createCompany(ROLE_MASTER, request);
 
             assertThat(response.userId()).isNull();
             assertThat(response.hubId()).isEqualTo(hubId);
@@ -115,16 +115,13 @@ class CompanyServiceTest {
         }
 
         @Test
-        @DisplayName("USER가 생성하면 본인이 업체 관리자(userId)가 된다")
+        @DisplayName("USER는 업체를 생성할 수 없다")
         void createByUser() {
-            given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
-            given(companyRepository.save(any(Company.class))).willAnswer(invocation -> invocation.getArgument(0));
+            Throwable thrown = catchThrowable(() -> companyService.createCompany(ROLE_USER, request));
 
-            CompanyResponse response = companyService.createCompany(userId, ROLE_USER, request);
-
-            assertThat(response.userId()).isEqualTo(userId);
-            assertThat(response.name()).isEqualTo(request.name());
-            verify(companyRepository).save(any(Company.class));
+            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
+            verifyNoInteractions(hubValidator);
+            verify(companyRepository, never()).save(any(Company.class));
         }
 
         @Test
@@ -132,8 +129,7 @@ class CompanyServiceTest {
         void createWithDuplicateName() {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(true);
 
-            Throwable thrown = catchThrowable(() -> companyService.createCompany(
-                    userId, ROLE_MASTER, request));
+            Throwable thrown = catchThrowable(() -> companyService.createCompany(ROLE_MASTER, request));
 
             assertBaseException(thrown, ErrorCode.COMPANY_ALREADY_EXISTS);
             verify(companyRepository, never()).save(any(Company.class));
@@ -145,7 +141,7 @@ class CompanyServiceTest {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
             given(companyRepository.save(any(Company.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-            companyService.createCompany(userId, ROLE_MASTER, request);
+            companyService.createCompany(ROLE_MASTER, request);
 
             verify(hubValidator).validateHubExists(hubId);
             verify(companyRepository).save(any(Company.class));
@@ -157,8 +153,7 @@ class CompanyServiceTest {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
             willThrow(new BaseException(ErrorCode.HUB_NOT_FOUND)).given(hubValidator).validateHubExists(hubId);
 
-            Throwable thrown = catchThrowable(() -> companyService.createCompany(
-                    userId, ROLE_MASTER, request));
+            Throwable thrown = catchThrowable(() -> companyService.createCompany(ROLE_MASTER, request));
 
             assertBaseException(thrown, ErrorCode.HUB_NOT_FOUND);
             verify(companyRepository, never()).save(any(Company.class));
