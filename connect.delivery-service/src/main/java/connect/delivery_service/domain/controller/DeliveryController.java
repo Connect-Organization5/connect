@@ -40,7 +40,7 @@ public class DeliveryController {
     public ResponseEntity<ApiResponse<PagedResponse<DeliveryResponse>>> searchDeliveries(
             @ModelAttribute DeliverySearchCondition cond,
             @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-affiliationType") AffiliationType affiliationType) {
+            @RequestHeader("X-User-Affiliation-Type") AffiliationType affiliationType) {
         PagedResponse<DeliveryResponse> response = deliveryService.searchDeliveries(cond, userId, affiliationType);
         return ResponseEntity.ok(ApiResponse.ok("배송 목록이 조회되었습니다.", response));
     }
@@ -90,7 +90,7 @@ public class DeliveryController {
     public ResponseEntity<ApiResponse<DeliveryResponse>> assignDeliveryUserId(
             @PathVariable UUID deliveryId,
             @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-affiliationType") AffiliationType affiliationType) {
+            @RequestHeader("X-User-Affiliation-Type") AffiliationType affiliationType) {
         DeliveryResponse response = deliveryService.assignDeliveryUserId(deliveryId, userId, affiliationType);
         return ResponseEntity.ok(ApiResponse.ok("배송 담당자가 배정되었습니다.", response));
     }
