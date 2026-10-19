@@ -11,5 +11,5 @@ public interface HubClient {
 
     void restoreStock(UUID orderId, UUID hubId, UUID productId);
 
-    boolean adjustStock(UUID orderId, UUID hubId, UUID productId, int quantityDelta);
+    boolean adjustStock(UUID adjustmentId, UUID orderId, UUID hubId, UUID productId, int quantityDelta);
 }

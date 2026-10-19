@@ -60,13 +60,15 @@ class UserServiceControllerIntegrationTest {
     void sendUser_returnsSavedUserWithoutToken() throws Exception {
         mockMvc.perform(get(URL, saved.getId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(saved.getId().toString()))
-                .andExpect(jsonPath("$.username").value("tester"))
-                .andExpect(jsonPath("$.email").value("tester@test.com"))
-                .andExpect(jsonPath("$.affiliationType").value("COMPANY"))
-                .andExpect(jsonPath("$.affiliationId").value(AFFILIATION_ID.toString()))
-                .andExpect(jsonPath("$.slackId").value("slack-1"))
-                .andExpect(jsonPath("$.password").doesNotExist());
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원 정보를 조회했습니다."))
+                .andExpect(jsonPath("$.data.id").value(saved.getId().toString()))
+                .andExpect(jsonPath("$.data.username").value("tester"))
+                .andExpect(jsonPath("$.data.email").value("tester@test.com"))
+                .andExpect(jsonPath("$.data.affiliationType").value("COMPANY"))
+                .andExpect(jsonPath("$.data.affiliationId").value(AFFILIATION_ID.toString()))
+                .andExpect(jsonPath("$.data.slackId").value("slack-1"))
+                .andExpect(jsonPath("$.data.password").doesNotExist());
     }
 
     @Test
@@ -74,7 +76,9 @@ class UserServiceControllerIntegrationTest {
     void sendUser_invalidTokenIgnored() throws Exception {
         mockMvc.perform(get(URL, saved.getId()).header(JwtUtil.AUTHORIZATION_HEADER, JwtUtil.BEARER_PREFIX + "invalid-token"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(saved.getId().toString()));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원 정보를 조회했습니다."))
+                .andExpect(jsonPath("$.data.id").value(saved.getId().toString()));
     }
 
     @Test

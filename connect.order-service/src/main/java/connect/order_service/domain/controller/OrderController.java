@@ -24,9 +24,11 @@ public class OrderController {
     @PostMapping
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(
             @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Affiliation-Type") String userAffiliationType,
+            @RequestHeader("X-User-Affiliation-Id") UUID userAffiliationId,
             @Valid @RequestBody CreateOrderRequest request) {
 
-        OrderResponse response = orderService.createOrder(userId, request);
+        OrderResponse response = orderService.createOrder(userId, userAffiliationType, userAffiliationId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("주문이 생성되었습니다.", response));
     }
@@ -66,10 +68,12 @@ public class OrderController {
     public ResponseEntity<ApiResponse<PagedResponse<OrderResponse>>> getReceivedOrders(
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role,
+            @RequestHeader("X-User-Affiliation-Type") String userAffiliationType,
+            @RequestHeader("X-User-Affiliation-Id") UUID userAffiliationId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        PagedResponse<OrderResponse> response = orderService.searchReceivedPageOrders(userId, role, page, size);
+        PagedResponse<OrderResponse> response = orderService.searchReceivedPageOrders(userId, role, userAffiliationType, userAffiliationId, page, size);
         return ResponseEntity.ok(ApiResponse.ok("주문 받은 목록 조회에 성공했습니다.", response));
     }
 
