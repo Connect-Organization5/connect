@@ -3,7 +3,7 @@ package connect.user_service.domain.user.service;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UpdateUserResponse;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -32,7 +33,7 @@ public class UserService {
 
     // 회원 생성 (MASTER 만 가능, 요청자와 같은 소속의 회원만 생성 가능)
     @Transactional
-    public UserResponse signup(SignUpRequestDto requestDto, User requester) {
+    public UpdateUserResponse signup(SignUpRequestDto requestDto, User requester) {
         // 1. 권한 확인 (중복 확인 전에 거부해서 username, email, slackId 의 존재 여부를 노출하지 않음)
         validateMaster(requester);
 
@@ -64,7 +65,7 @@ public class UserService {
         User user = new User(username, password, email, UserRole.USER, requestDto.getAffiliationType(), requestDto.getAffiliationId(), requestDto.getSlackId());
         userRepository.save(user);
 
-        return UserResponse.from(user);
+        return UpdateUserResponse.from(user);
     }
 
     // 아이디가 없거나 비밀번호가 틀려도 같은 에러를 반환해서 아이디 존재 여부를 노출하지 않음
@@ -81,7 +82,7 @@ public class UserService {
 
     // 회원 단건 조회 (USER 는 본인만, MASTER 는 같은 소속 회원만)
     @Transactional(readOnly = true)
-    public UserResponse getUser(Long userId, User requester) {
+    public UpdateUserResponse getUser(UUID userId, User requester) {
         // 1. USER 가 다른 회원을 조회하면 거부 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
         if (requester.getRole() != ROLE_MASTER && !Objects.equals(requester.getId(), userId)) {
             throw new BaseException(ErrorCode.USER_ACCESS_DENIED);
@@ -94,12 +95,12 @@ public class UserService {
         // 3. MASTER 는 같은 소속 회원만 조회 가능 (본인은 항상 같은 소속)
         validateSameAffiliation(requester, user);
 
-        return UserResponse.from(user);
+        return UpdateUserResponse.from(user);
     }
 
     // 회원 목록 조회 (MASTER 만 가능, 요청자와 같은 소속의 모든 회원)
     @Transactional(readOnly = true)
-    public PageResponse<UserResponse> getAllUsers(User requester, int page, int size) {
+    public PageResponse<UpdateUserResponse> getAllUsers(User requester, int page, int size) {
         // 1. 권한 확인
         validateMaster(requester);
 
@@ -111,12 +112,12 @@ public class UserService {
                 PageRequest.of(page, size)
         );
 
-        return PageResponse.from(users.map(UserResponse::from));
+        return PageResponse.from(users.map(UpdateUserResponse::from));
     }
 
     // 회원 정보 수정 (MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 수정 가능)
     @Transactional
-    public UserResponse updateUser(Long userId, UpdateUserRequestDto requestDto, User requester) {
+    public UpdateUserResponse updateUser(UUID userId, UpdateUserRequestDto requestDto, User requester) {
         // 1. 권한 확인 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
         validateMaster(requester);
 
@@ -148,12 +149,12 @@ public class UserService {
                 requestDto.getRole()
         );
 
-        return UserResponse.from(user);
+        return UpdateUserResponse.from(user);
     }
 
     // 회원 삭제 (논리적 삭제, MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 삭제 가능)
     @Transactional
-    public void deleteUser(Long userId, User requester) {
+    public void deleteUser(UUID userId, User requester) {
         // 1. 권한 확인 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
         validateMaster(requester);
 
@@ -192,13 +193,13 @@ public class UserService {
                         target.getAffiliationType(), target.getAffiliationId(), ROLE_MASTER).size() <= 1;
     }
 
-    // affiliationId 는 Long 이므로 == 가 아닌 equals 로 비교
+    // affiliationId 는 UUID(객체) 이므로 == 가 아닌 equals 로 비교
     private void validateSameAffiliation(User requester, User target) {
         validateSameAffiliation(requester, target.getAffiliationType(), target.getAffiliationId());
     }
 
     // 회원 생성처럼 대상 회원이 아직 없을 때는 요청 값의 소속으로 비교
-    private void validateSameAffiliation(User requester, AffiliationType affiliationType, Long affiliationId) {
+    private void validateSameAffiliation(User requester, AffiliationType affiliationType, UUID affiliationId) {
         if (!Objects.equals(requester.getAffiliationType(), affiliationType)
                 || !Objects.equals(requester.getAffiliationId(), affiliationId)) {
             throw new BaseException(ErrorCode.USER_ACCESS_DENIED);

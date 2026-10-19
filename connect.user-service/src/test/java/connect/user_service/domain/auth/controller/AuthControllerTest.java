@@ -3,7 +3,7 @@ package connect.user_service.domain.auth.controller;
 import connect.user_service.global.security.JwtUtil;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UpdateUserResponse;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -29,6 +29,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.UUID;
+
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -44,13 +46,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(MockitoExtension.class)
 class AuthControllerTest {
 
+    private static final UUID AFFILIATION_ID = UUID.fromString("00000000-0000-0000-0000-000000001000");
+
+    // 테스트용 고정 UUID (idOf(1) → 00000000-0000-0000-0000-000000000001)
+    private static UUID idOf(long no) {
+        return UUID.fromString("00000000-0000-0000-0000-%012d".formatted(no));
+    }
+
     private static final String VALID_BODY = """
             {
               "username": "tester",
               "password": "password1!",
               "email": "tester@test.com",
               "affiliationType": "COMPANY",
-              "affiliationId": 1,
+              "affiliationId": "00000000-0000-0000-0000-000000001000",
               "slackId": "slack-1"
             }
             """;
@@ -77,8 +86,8 @@ class AuthControllerTest {
                 .build();
 
         // JwtAuthorizationFilter 가 하는 것처럼 로그인 회원(MASTER)을 SecurityContext 에 저장
-        loginUser = new User("master", "encodedPw", "master@test.com", UserRole.MASTER, AffiliationType.COMPANY, 1L, "slack-master");
-        loginUser.setId(1L);
+        loginUser = new User("master", "encodedPw", "master@test.com", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID, "slack-master");
+        loginUser.setId(idOf(1));
         UserDetailsImpl userDetails = new UserDetailsImpl(loginUser);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
@@ -99,13 +108,13 @@ class AuthControllerTest {
     @DisplayName("POST /auth/signup - 성공 시 201 과 생성된 회원 정보 반환, 로그인 회원을 요청자로 전달하고 토큰은 발급하지 않음")
     void signup_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(2L, "tester", "tester@test.com", AffiliationType.COMPANY, 1L, "slack-1");
+        UpdateUserResponse response = new UpdateUserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1");
         given(userService.signup(any(SignUpRequestDto.class), same(loginUser))).willReturn(response);
 
         // when & then
         signup(VALID_BODY)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(2L))
+                .andExpect(jsonPath("$.id").value(idOf(2).toString()))
                 .andExpect(jsonPath("$.username").value("tester"))
                 .andExpect(jsonPath("$.access_token").doesNotExist());
         then(jwtUtil).should(never()).createAccessToken(anyString());
@@ -218,7 +227,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/login - 성공 시 200 과 DB 회원 정보로 만든 access_token 반환")
     void login_success() throws Exception {
         // given
-        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, AffiliationType.COMPANY, 1L, "slack-1");
+        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID, "slack-1");
         given(userService.login(any(LoginRequestDto.class))).willReturn(user);
         given(jwtUtil.createAccessToken("tester")).willReturn("test-token");
 

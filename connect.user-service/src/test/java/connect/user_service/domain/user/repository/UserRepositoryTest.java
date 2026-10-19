@@ -18,8 +18,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,6 +31,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(JpaAuditingConfig.class)
 class UserRepositoryTest {
 
+    private static final UUID AFFILIATION_ID = UUID.fromString("00000000-0000-0000-0000-000000001000");
+    private static final UUID OTHER_AFFILIATION_ID = UUID.fromString("00000000-0000-0000-0000-000000002000");
+
+    // 테스트용 고정 UUID (idOf(1) → 00000000-0000-0000-0000-000000000001)
+    private static UUID idOf(long no) {
+        return UUID.fromString("00000000-0000-0000-0000-%012d".formatted(no));
+    }
+
     @Autowired
     private UserRepository userRepository;
 
@@ -36,7 +46,7 @@ class UserRepositoryTest {
     private EntityManager entityManager;
 
     private User user(String username, String email, String slackId) {
-        return new User(username, "encodedPw", email, UserRole.USER, AffiliationType.COMPANY, 1L, slackId);
+        return new User(username, "encodedPw", email, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID, slackId);
     }
 
     @Test
@@ -52,7 +62,7 @@ class UserRepositoryTest {
         assertThat(found.getEmail()).isEqualTo("tester@test.com");
         assertThat(found.getRole()).isEqualTo(UserRole.USER);
         assertThat(found.getAffiliationType()).isEqualTo(AffiliationType.COMPANY);
-        assertThat(found.getAffiliationId()).isEqualTo(1L);
+        assertThat(found.getAffiliationId()).isEqualTo(AFFILIATION_ID);
         assertThat(found.getSlackId()).isEqualTo("slack-1");
     }
 
@@ -138,7 +148,7 @@ class UserRepositoryTest {
         LocalDateTime firstUpdatedAt = saved.getUpdatedAt();
 
         User master = user("master", "master@test.com", "slack-master");
-        master.setId(99L);
+        master.setId(idOf(99));
         UserDetailsImpl userDetails = new UserDetailsImpl(master);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
@@ -148,7 +158,7 @@ class UserRepositoryTest {
         userRepository.saveAndFlush(saved);
 
         // then
-        assertThat(saved.getUpdatedBy()).isEqualTo(99L);
+        assertThat(saved.getUpdatedBy()).isEqualTo(idOf(99));
         assertThat(saved.getUpdatedAt()).isAfterOrEqualTo(firstUpdatedAt);
         assertThat(saved.getCreatedAt()).isEqualTo(createdAt);
         assertThat(saved.getCreatedBy()).isNull();
@@ -157,12 +167,12 @@ class UserRepositoryTest {
 
     // ===== 같은 소속 회원 목록 조회 =====
 
-    private User member(String username, UserRole role, AffiliationType affiliationType, Long affiliationId) {
+    private User member(String username, UserRole role, AffiliationType affiliationType, UUID affiliationId) {
         return new User(username, "encodedPw", username + "@test.com", role, affiliationType, affiliationId, "slack-" + username);
     }
 
     // Auditing 이 채운 created_at 을 원하는 값으로 바꿔서 정렬 검증 (null 이면 Auditing 적용 전 기존 회원)
-    private void setCreatedAt(Long id, LocalDateTime createdAt) {
+    private void setCreatedAt(UUID id, LocalDateTime createdAt) {
         entityManager.createNativeQuery("UPDATE users SET created_at = ? WHERE id = ?")
                 .setParameter(1, createdAt)
                 .setParameter(2, id)
@@ -173,15 +183,15 @@ class UserRepositoryTest {
     @DisplayName("같은 소속의 USER, MASTER 모두 조회 - 다른 소속과 삭제된 회원은 제외")
     void findAllByAffiliation_filters() {
         // given
-        User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
-        User user1 = userRepository.saveAndFlush(member("user1", UserRole.USER, AffiliationType.COMPANY, 1000L));
-        userRepository.saveAndFlush(member("otherType", UserRole.USER, AffiliationType.HUB, 1000L));
-        userRepository.saveAndFlush(member("otherId", UserRole.USER, AffiliationType.COMPANY, 2000L));
-        User deleted = userRepository.saveAndFlush(member("deleted", UserRole.USER, AffiliationType.COMPANY, 1000L));
-        userRepository.softDeleteById(deleted.getId(), 1L, LocalDateTime.now());
+        User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User user1 = userRepository.saveAndFlush(member("user1", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
+        userRepository.saveAndFlush(member("otherType", UserRole.USER, AffiliationType.HUB, AFFILIATION_ID));
+        userRepository.saveAndFlush(member("otherId", UserRole.USER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID));
+        User deleted = userRepository.saveAndFlush(member("deleted", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
+        userRepository.softDeleteById(deleted.getId(), idOf(1), LocalDateTime.now());
 
         // when
-        Page<User> result = userRepository.findAllByAffiliation(AffiliationType.COMPANY, 1000L, UserRole.MASTER, PageRequest.of(0, 10));
+        Page<User> result = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(0, 10));
 
         // then
         assertThat(result.getContent()).extracting(User::getId)
@@ -193,16 +203,16 @@ class UserRepositoryTest {
     @DisplayName("잠금 조회 - 같은 소속의 MASTER 만 조회, USER, 다른 소속, 삭제된 MASTER 는 제외")
     void findAllByAffiliationAndRoleForUpdate_filters() {
         // given
-        User master1 = userRepository.saveAndFlush(member("master1", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
-        User master2 = userRepository.saveAndFlush(member("master2", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
-        userRepository.saveAndFlush(member("user1", UserRole.USER, AffiliationType.COMPANY, 1000L));
-        userRepository.saveAndFlush(member("otherType", UserRole.MASTER, AffiliationType.HUB, 1000L));
-        userRepository.saveAndFlush(member("otherId", UserRole.MASTER, AffiliationType.COMPANY, 2000L));
-        User deleted = userRepository.saveAndFlush(member("deleted", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
-        userRepository.softDeleteById(deleted.getId(), 1L, LocalDateTime.now());
+        User master1 = userRepository.saveAndFlush(member("master1", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User master2 = userRepository.saveAndFlush(member("master2", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
+        userRepository.saveAndFlush(member("user1", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
+        userRepository.saveAndFlush(member("otherType", UserRole.MASTER, AffiliationType.HUB, AFFILIATION_ID));
+        userRepository.saveAndFlush(member("otherId", UserRole.MASTER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID));
+        User deleted = userRepository.saveAndFlush(member("deleted", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
+        userRepository.softDeleteById(deleted.getId(), idOf(1), LocalDateTime.now());
 
         // when
-        List<User> result = userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, 1000L, UserRole.MASTER);
+        List<User> result = userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER);
 
         // then
         assertThat(result).extracting(User::getId)
@@ -213,11 +223,11 @@ class UserRepositoryTest {
     @DisplayName("정렬 - MASTER 먼저, 그다음 createdAt 내림차순, createdAt 이 없는 회원은 마지막")
     void findAllByAffiliation_sort() {
         // given: id 순서와 created_at 순서를 일부러 다르게 설정
-        User oldMaster = userRepository.saveAndFlush(member("oldMaster", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
-        User newUser = userRepository.saveAndFlush(member("newUser", UserRole.USER, AffiliationType.COMPANY, 1000L));
-        User legacyUser = userRepository.saveAndFlush(member("legacyUser", UserRole.USER, AffiliationType.COMPANY, 1000L));
-        User oldUser = userRepository.saveAndFlush(member("oldUser", UserRole.USER, AffiliationType.COMPANY, 1000L));
-        User newMaster = userRepository.saveAndFlush(member("newMaster", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
+        User oldMaster = userRepository.saveAndFlush(member("oldMaster", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User newUser = userRepository.saveAndFlush(member("newUser", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User legacyUser = userRepository.saveAndFlush(member("legacyUser", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User oldUser = userRepository.saveAndFlush(member("oldUser", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User newMaster = userRepository.saveAndFlush(member("newMaster", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
 
         LocalDateTime base = LocalDateTime.of(2026, 1, 1, 0, 0);
         setCreatedAt(oldMaster.getId(), base);
@@ -228,7 +238,7 @@ class UserRepositoryTest {
         entityManager.clear();
 
         // when
-        Page<User> result = userRepository.findAllByAffiliation(AffiliationType.COMPANY, 1000L, UserRole.MASTER, PageRequest.of(0, 10));
+        Page<User> result = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(0, 10));
 
         // then
         assertThat(result.getContent()).extracting(User::getUsername)
@@ -240,17 +250,17 @@ class UserRepositoryTest {
     void findAllByAffiliation_paging() {
         // given: 같은 소속 회원 5명 (MASTER 1, USER 4)
         LocalDateTime base = LocalDateTime.of(2026, 1, 1, 0, 0);
-        User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
+        User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
         setCreatedAt(master.getId(), base);
         for (int i = 1; i <= 4; i++) {
-            User user = userRepository.saveAndFlush(member("user" + i, UserRole.USER, AffiliationType.COMPANY, 1000L));
+            User user = userRepository.saveAndFlush(member("user" + i, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
             setCreatedAt(user.getId(), base.plusDays(i));
         }
         entityManager.clear();
 
         // when
-        Page<User> first = userRepository.findAllByAffiliation(AffiliationType.COMPANY, 1000L, UserRole.MASTER, PageRequest.of(0, 2));
-        Page<User> last = userRepository.findAllByAffiliation(AffiliationType.COMPANY, 1000L, UserRole.MASTER, PageRequest.of(2, 2));
+        Page<User> first = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(0, 2));
+        Page<User> last = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(2, 2));
 
         // then
         assertThat(first.getContent()).extracting(User::getUsername).containsExactly("master", "user4");
@@ -261,8 +271,8 @@ class UserRepositoryTest {
 
     // ===== 논리적 삭제 =====
 
-    private void loginAs(Long userId) {
-        User loginUser = user("login" + userId, "login" + userId + "@test.com", "slack-login" + userId);
+    private void loginAs(UUID userId) {
+        User loginUser = user("login-" + userId, "login-" + userId + "@test.com", "slack-login-" + userId);
         loginUser.setId(userId);
         UserDetailsImpl userDetails = new UserDetailsImpl(loginUser);
         SecurityContextHolder.getContext().setAuthentication(
@@ -270,32 +280,38 @@ class UserRepositoryTest {
     }
 
     // 삭제된 행은 @SQLRestriction 때문에 JPA 로 조회되지 않으므로 네이티브 쿼리로 직접 조회
-    private Object[] auditColumns(Long id) {
+    private Object[] auditColumns(UUID id) {
         return (Object[]) entityManager.createNativeQuery(
                         "SELECT updated_at, updated_by, deleted_at, deleted_by FROM users WHERE id = ?")
                 .setParameter(1, id)
                 .getSingleResult();
     }
 
+    // 네이티브 쿼리는 UUID 컬럼을 byte[16] 으로 돌려주므로 UUID 로 변환해서 비교
+    private static UUID toUuid(Object value) {
+        ByteBuffer buffer = ByteBuffer.wrap((byte[]) value);
+        return new UUID(buffer.getLong(), buffer.getLong());
+    }
+
     @Test
     @DisplayName("논리적 삭제 시 deleted_at, deleted_by 만 기록되고 updated_at, updated_by 는 그대로")
     void softDelete_doesNotChangeUpdatedColumns() {
-        // given: id 50 회원이 로그인한 상태에서 저장 → updated_by = 50
-        loginAs(50L);
+        // given: idOf(50) 회원이 로그인한 상태에서 저장 → updated_by = idOf(50)
+        loginAs(idOf(50));
         User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
         Object[] before = auditColumns(saved.getId());
 
-        // when: id 99 회원이 로그인한 상태에서 삭제
-        loginAs(99L);
-        int deleted = userRepository.softDeleteById(saved.getId(), 99L, LocalDateTime.now());
+        // when: idOf(99) 회원이 로그인한 상태에서 삭제
+        loginAs(idOf(99));
+        int deleted = userRepository.softDeleteById(saved.getId(), idOf(99), LocalDateTime.now());
 
         // then
         Object[] after = auditColumns(saved.getId());
         assertThat(deleted).isEqualTo(1);
         assertThat(after[0]).isEqualTo(before[0]);                    // updated_at 그대로
-        assertThat(((Number) after[1]).longValue()).isEqualTo(50L);   // updated_by 그대로
+        assertThat(toUuid(after[1])).isEqualTo(idOf(50));             // updated_by 그대로
         assertThat(after[2]).isNotNull();                             // deleted_at 기록
-        assertThat(((Number) after[3]).longValue()).isEqualTo(99L);   // deleted_by 기록
+        assertThat(toUuid(after[3])).isEqualTo(idOf(99));             // deleted_by 기록
     }
 
     @Test
@@ -305,7 +321,7 @@ class UserRepositoryTest {
         User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
 
         // when
-        userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now());
+        userRepository.softDeleteById(saved.getId(), idOf(1), LocalDateTime.now());
 
         // then
         assertThat(userRepository.findById(saved.getId())).isEmpty();
@@ -321,11 +337,11 @@ class UserRepositoryTest {
     void softDelete_alreadyDeletedOrMissing() {
         // given
         User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
-        userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now());
+        userRepository.softDeleteById(saved.getId(), idOf(1), LocalDateTime.now());
 
         // when & then
-        assertThat(userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now())).isZero();
-        assertThat(userRepository.softDeleteById(999L, 1L, LocalDateTime.now())).isZero();
+        assertThat(userRepository.softDeleteById(saved.getId(), idOf(1), LocalDateTime.now())).isZero();
+        assertThat(userRepository.softDeleteById(idOf(999), idOf(1), LocalDateTime.now())).isZero();
     }
 
     @Test
@@ -333,7 +349,7 @@ class UserRepositoryTest {
     void softDelete_valuesStillOccupied() {
         // given
         User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
-        userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now());
+        userRepository.softDeleteById(saved.getId(), idOf(1), LocalDateTime.now());
 
         // when & then
         assertThatThrownBy(() -> userRepository.saveAndFlush(user("tester", "other@test.com", "slack-2")))

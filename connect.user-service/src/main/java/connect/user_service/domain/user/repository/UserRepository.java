@@ -15,16 +15,17 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface UserRepository extends JpaRepository<User, Long> {
+public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByUsername(String username);
     Optional<User> findByEmail(String email);
     boolean existsByUsername(String username);
     boolean existsByEmail(String email);
     boolean existsBySlackId(String slackId);
     // 회원 정보 수정 시 자기 자신을 제외한 중복 확인
-    boolean existsByEmailAndIdNot(String email, Long id);
-    boolean existsBySlackIdAndIdNot(String slackId, Long id);
+    boolean existsByEmailAndIdNot(String email, UUID id);
+    boolean existsBySlackIdAndIdNot(String slackId, UUID id);
 
     // 같은 소속의 특정 권한 회원을 SELECT ... FOR UPDATE 로 잠그고 조회 (삭제된 회원은 @SQLRestriction 으로 제외)
     // 마지막 MASTER 삭제/강등 방지에 사용: 같은 소속의 요청은 먼저 잠근 트랜잭션이 끝날 때까지 기다린 뒤 최신 값으로 다시 셈
@@ -32,7 +33,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u " +
             "WHERE u.affiliationType = :affiliationType AND u.affiliationId = :affiliationId AND u.role = :role")
     List<User> findAllByAffiliationAndRoleForUpdate(@Param("affiliationType") AffiliationType affiliationType,
-                                                   @Param("affiliationId") Long affiliationId,
+                                                   @Param("affiliationId") UUID affiliationId,
                                                    @Param("role") UserRole role);
 
     // 같은 소속의 모든 회원 조회 (삭제된 회원은 @SQLRestriction 으로 제외)
@@ -44,7 +45,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
             countQuery = "SELECT COUNT(u) FROM User u " +
                     "WHERE u.affiliationType = :affiliationType AND u.affiliationId = :affiliationId")
     Page<User> findAllByAffiliation(@Param("affiliationType") AffiliationType affiliationType,
-                                    @Param("affiliationId") Long affiliationId,
+                                    @Param("affiliationId") UUID affiliationId,
                                     @Param("firstRole") UserRole firstRole,
                                     Pageable pageable);
 
@@ -53,7 +54,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE User u SET u.deletedAt = :deletedAt, u.deletedBy = :deletedBy " +
             "WHERE u.id = :id AND u.deletedAt IS NULL")
-    int softDeleteById(@Param("id") Long id,
-                       @Param("deletedBy") Long deletedBy,
+    int softDeleteById(@Param("id") UUID id,
+                       @Param("deletedBy") UUID deletedBy,
                        @Param("deletedAt") LocalDateTime deletedAt);
 }

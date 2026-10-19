@@ -9,6 +9,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Optional;
+import java.util.UUID;
 
 // TimeStamp 의 createdAt/By, updatedAt/By 를 자동으로 채움
 @Configuration
@@ -17,7 +18,7 @@ public class JpaAuditingConfig {
 
     // 현재 로그인한 회원의 id 를 createdBy, updatedBy 로 사용 (회원가입처럼 로그인 전이면 null)
     @Bean
-    public AuditorAware<Long> auditorAware() {
+    public AuditorAware<UUID> auditorAware() {
         return () -> {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             if (authentication != null && authentication.getPrincipal() instanceof UserDetailsImpl userDetails) {

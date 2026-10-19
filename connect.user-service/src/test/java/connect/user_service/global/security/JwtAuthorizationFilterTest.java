@@ -20,6 +20,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.security.SecureRandom;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
@@ -71,7 +72,7 @@ class JwtAuthorizationFilterTest {
     @DisplayName("JwtUtil 이 발급한 유효한 토큰이면 SecurityContext 에 인증 정보 저장")
     void validToken_setsAuthentication() throws Exception {
         // given
-        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, AffiliationType.COMPANY, 1L, "slack-1");
+        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, AffiliationType.COMPANY, UUID.fromString("00000000-0000-0000-0000-000000001000"), "slack-1");
         given(userDetailsService.loadUserByUsername("tester")).willReturn(new UserDetailsImpl(user));
         MockHttpServletRequest request = requestWithToken(createToken(secretKey, "tester", 60_000));
         MockFilterChain chain = new MockFilterChain();
