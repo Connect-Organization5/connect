@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -200,14 +201,36 @@ class HubRouteApiIntegrationTest {
     }
 
     @Test
-    void 없는_경로는_404이고_자기_자신_경로는_없다() throws Exception {
+    void 없는_경로는_404이다() throws Exception {
         mockMvc.perform(get("/hubs/routes/{dep}/{arr}", SEOUL, UUID.randomUUID()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("이동 경로를 찾을 수 없습니다."));
+    }
 
+    @Test
+    void 같은_허브_경로는_거리와_시간이_0이고_routeId는_null이다() throws Exception {
         mockMvc.perform(get("/hubs/routes/{dep}/{arr}", SEOUL, SEOUL))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.routeId").value(nullValue()))
+                .andExpect(jsonPath("$.data.departureHubId").value(SEOUL.toString()))
+                .andExpect(jsonPath("$.data.arrivalHubId").value(SEOUL.toString()))
+                .andExpect(jsonPath("$.data.distance").value(0.0))
+                .andExpect(jsonPath("$.data.duration").value(0));
+
+        // 같은 허브 경로는 저장하지 않으므로 적재 건수는 그대로다
+        assertThat(hubRouteRepository.count()).isEqualTo(272);
+    }
+
+    @Test
+    void 없는_허브의_같은_허브_경로는_404다() throws Exception {
+        UUID unknown = UUID.randomUUID();
+
+        mockMvc.perform(get("/hubs/routes/{dep}/{arr}", unknown, unknown))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("허브를 찾을 수 없습니다."));
     }
 
     @Test
