@@ -17,6 +17,7 @@ import connect.order_service.domain.repository.OrderRepository;
 import connect.order_service.global.exception.BaseException;
 import connect.order_service.global.exception.ErrorCode;
 import connect.order_service.global.slack.SlackWebhookSender;
+import feign.FeignException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -336,7 +337,7 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.ORDER_NOT_MODIFIABLE.getMessage());
-        verify(deliveryClient, never()).getDelivery(any());            // 배송 확인 메소드가 실행되지 않음
+        verify(deliveryClient, never()).getDelivery(any(), any(), any());            // 배송 확인 메소드가 실행되지 않음
     }
 
     @Test
@@ -345,7 +346,7 @@ class OrderServiceTest {
         UUID myId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = givenCreatedOrder(orderId, myId);
-        when(deliveryClient.getDelivery(deliveryId)).thenReturn(new DeliveryInfo(deliveryId, "HUB_MOVING"));
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_MOVING"));
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.ORDER_DELIVERY_STARTED.getMessage());     // 오류 메시지 확인
@@ -354,19 +355,47 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("배송 정보가 없으면 수정 불가 DELIVERY_NOT_FOUND")
+    void updateOrder_deliveryNotFound() {
+        UUID myId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order order = givenCreatedOrder(orderId, myId);
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenThrow(FeignException.NotFound.class);  // 배송 조회 404
+
+        assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
+                .hasMessage(ErrorCode.DELIVERY_NOT_FOUND.getMessage());         // 오류 메시지 확인
+        verify(hubClient, never()).adjustStock(any(), any(), any(), anyInt());  // 재고 조정 메소드가 실행되지 않음
+        assertThat(order.getQuantity()).isEqualTo(3);   // 수량이 변하지 않음
+    }
+
+    @Test
+    @DisplayName("배송 조회에 실패하면 취소 불가 DELIVERY_FETCH_FAILED")
+    void deleteOrder_deliveryFetchFailed() {
+        UUID myId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order order = givenCreatedOrder(orderId, myId);
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenThrow(new RuntimeException());  // 배송 서비스 오류
+
+        assertThatThrownBy(() -> orderService.deleteOrder(myId, "USER", orderId))
+                .hasMessage(ErrorCode.DELIVERY_FETCH_FAILED.getMessage());   // 오류 메시지 확인
+        verify(deliveryClient, never()).cancelDelivery(any());               // 배송 취소 메소드가 실행되지 않음
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CREATED);        // 주문 상태 유지
+    }
+
+    @Test
     @DisplayName("늘린 수량만큼 재고가 없으면 수정 불가 OUT_OF_STOCK_FOR_UPDATE")
     void updateOrder_outOfStock() {
         UUID myId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = givenCreatedOrder(orderId, myId);
-        when(deliveryClient.getDelivery(deliveryId)).thenReturn(new DeliveryInfo(deliveryId, "READY"));
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
         when(hubClient.adjustStock(any(), any(), any(), eq(2))).thenReturn(false);   // 재고 차감 실패
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.OUT_OF_STOCK_FOR_UPDATE.getMessage());    // 오류 메시지 확인
-        verify(deliveryClient, never()).updateDelivery(any(), any());  // 배송 수정 메소드 실행하지 않음
+        verify(deliveryClient, never()).changeReceiver(any(), any(), any(), any());  // 배송 수정 메소드 실행하지 않음
         assertThat(order.getQuantity()).isEqualTo(3);   // 수량이 변하지 않음
     }
 
@@ -376,11 +405,11 @@ class OrderServiceTest {
         UUID myId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = givenCreatedOrder(orderId, myId);
-        when(deliveryClient.getDelivery(deliveryId)).thenReturn(new DeliveryInfo(deliveryId, "READY"));
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
         when(hubClient.adjustStock(any(), any(), any(), eq(2))).thenReturn(true);    // 수량 차감 성공
-        doThrow(new RuntimeException()).when(deliveryClient).updateDelivery(any(), any());  // 배송 수정에 오류
+        doThrow(new RuntimeException()).when(deliveryClient).changeReceiver(any(), any(), any(), any());  // 배송 수정에 오류
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.DELIVERY_UPDATE_FAILED.getMessage());
@@ -395,13 +424,13 @@ class OrderServiceTest {
         UUID myId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = givenCreatedOrder(orderId, myId);
-        when(deliveryClient.getDelivery(deliveryId)).thenReturn(new DeliveryInfo(deliveryId, "READY"));
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
 
         orderService.deleteOrder(myId, "USER", orderId);
 
-        verify(deliveryClient).cancelDelivery(deliveryId);
+        verify(deliveryClient).cancelDelivery(orderId);
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELED);
         verify(orderRepository).save(order);
     }
@@ -427,7 +456,7 @@ class OrderServiceTest {
         UUID myId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = givenCreatedOrder(orderId, myId);
-        when(deliveryClient.getDelivery(deliveryId)).thenReturn(new DeliveryInfo(deliveryId, "HUB_MOVING"));
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_MOVING"));
 
         assertThatThrownBy(() -> orderService.deleteOrder(myId, "USER", orderId))
                 .hasMessage(ErrorCode.ORDER_DELIVERY_STARTED.getMessage());  // 오류 메시지 확인
@@ -441,8 +470,8 @@ class OrderServiceTest {
         UUID myId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = givenCreatedOrder(orderId, myId);
-        when(deliveryClient.getDelivery(deliveryId)).thenReturn(new DeliveryInfo(deliveryId, "READY"));
-        doThrow(new RuntimeException()).when(deliveryClient).cancelDelivery(deliveryId);
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
+        doThrow(new RuntimeException()).when(deliveryClient).cancelDelivery(orderId);
 
         assertThatThrownBy(() -> orderService.deleteOrder(myId, "USER", orderId))
                 .hasMessage(ErrorCode.DELIVERY_DELETE_FAILED.getMessage());  // 오류 메시지 확인
@@ -457,7 +486,7 @@ class OrderServiceTest {
         UUID myId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = givenCreatedOrder(orderId, myId);
-        when(deliveryClient.getDelivery(deliveryId)).thenReturn(new DeliveryInfo(deliveryId, "READY"));
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
         doThrow(new RuntimeException()).when(hubClient).restoreStock(any(), any(), any());

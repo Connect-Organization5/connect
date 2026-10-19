@@ -1,10 +1,10 @@
-package connect.order_service.domain.client.dto.response;
+package connect.order_service.domain.client.dto.request;
 
 import java.util.UUID;
 
 public record DeliveryCreateRequest(
         UUID orderId,
-        UUID requestUserId,
+        UUID ordererId,
         UUID departureHubId,
         UUID arrivalHubId,
         String deliveryAddress,

@@ -16,9 +16,6 @@ public class UpdateOrderRequest {
     @Size(max = 200, message = "요청사항은 200자 이하로 입력해주세요.")
     private String requestMessage;
 
-    @Size(max = 255, message = "배송지는 255자 이하로 입력해주세요.")
-    private String deliveryAddress;
-
     @NotBlank(message = "수령인은 필수입니다.")
     @Size(max = 50, message = "수령인은 50자 이하로 입력해주세요.")
     private String receiver;

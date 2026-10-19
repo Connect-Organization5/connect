@@ -1,6 +1,8 @@
 package connect.order_service.domain.service;
 
 import connect.order_service.domain.client.clientInterface.*;
+import connect.order_service.domain.client.dto.request.DeliveryCreateRequest;
+import connect.order_service.domain.client.dto.request.DeliveryReceiverRequest;
 import connect.order_service.domain.client.dto.response.*;
 import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderRequester;
@@ -36,7 +38,7 @@ public class OrderService {
     private final SlackWebhookSender slackWebhookSender;
 
     private static final String MASTER_ROLE = "MASTER";
-    private static final String MODIFIABLE_DELIVERY_STATUS = "READY";
+    private static final String MODIFIABLE_DELIVERY_STATUS = "HUB_WAITING";
 
     public OrderResponse createOrder(UUID userId, CreateOrderRequest request) {
         UserInfo orderer = userClient.getUser(userId);
@@ -176,7 +178,7 @@ public class OrderService {
         if (!order.isModifiable()) {
             throw new BaseException(ErrorCode.ORDER_NOT_MODIFIABLE);
         }
-        validateDeliveryReady(order);
+        validateDeliveryReady(order, userId, role);
 
         CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
 
@@ -185,8 +187,7 @@ public class OrderService {
 
         // 2. 배송 수정, 실패하면 재고 조정을 되돌림
         try {
-            deliveryClient.updateDelivery(order.getDeliveryId(), new DeliveryUpdateRequest(
-                    request.getDeliveryAddress(),
+            deliveryClient.changeReceiver(order.getDeliveryId(), userId, role, new DeliveryReceiverRequest(
                     request.getReceiver()));
         } catch (Exception e) {
             log.error("배송 수정 실패 - orderId={}", order.getId(), e);
@@ -216,9 +217,9 @@ public class OrderService {
 
         // 재고 부족 등으로 이미 취소된 주문은 재고와 배송 처리 없이 삭제만
         if (order.isModifiable()) {
-            validateDeliveryReady(order);
+            validateDeliveryReady(order, userId, role);
             try{
-                deliveryClient.cancelDelivery(order.getDeliveryId());
+                deliveryClient.cancelDelivery(order.getId());
             } catch (Exception ex) {
                 log.error("주문 배송 삭제 실패 - orderId={}", order.getId(), ex);
                 throw new BaseException(ErrorCode.DELIVERY_DELETE_FAILED);
@@ -297,9 +298,17 @@ public class OrderService {
         }
     }
 
-    private void validateDeliveryReady(Order order) {
-        DeliveryInfo delivery = deliveryClient.getDelivery(order.getDeliveryId());
-        if (!MODIFIABLE_DELIVERY_STATUS.equals(delivery.status())) {
+    private void validateDeliveryReady(Order order, UUID userId, String role) {
+        DeliveryInfo delivery;
+        try {
+            delivery = deliveryClient.getDelivery(order.getDeliveryId(), userId, role);
+        } catch (FeignException.NotFound e) {
+            throw new BaseException(ErrorCode.DELIVERY_NOT_FOUND);
+        } catch (Exception e) {
+            log.error("배송 조회 실패 - orderId={}", order.getId(), e);
+            throw new BaseException(ErrorCode.DELIVERY_FETCH_FAILED);
+        }
+        if (!MODIFIABLE_DELIVERY_STATUS.equals(delivery.deliveryStatus())) {
             throw new BaseException(ErrorCode.ORDER_DELIVERY_STARTED);
         }
     }
