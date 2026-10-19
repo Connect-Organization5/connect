@@ -74,10 +74,11 @@ class ProductControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(PRODUCT_JSON))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(productId.toString()))
-                .andExpect(jsonPath("$.name").value("사과"))
-                .andExpect(jsonPath("$.price").value(1000))
-                .andExpect(jsonPath("$.companyId").doesNotExist());
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(productId.toString()))
+                .andExpect(jsonPath("$.data.name").value("사과"))
+                .andExpect(jsonPath("$.data.price").value(1000))
+                .andExpect(jsonPath("$.data.companyId").doesNotExist());
     }
 
     @Test
@@ -112,8 +113,8 @@ class ProductControllerTest {
 
         mockMvc.perform(get(baseUrl() + "/" + productId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(productId.toString()))
-                .andExpect(jsonPath("$.description").value("맛있는 사과"));
+                .andExpect(jsonPath("$.data.id").value(productId.toString()))
+                .andExpect(jsonPath("$.data.description").value("맛있는 사과"));
     }
 
     @Test
@@ -123,8 +124,8 @@ class ProductControllerTest {
 
         mockMvc.perform(get(baseUrl()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.contents[0].name").value("사과"))
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.data.contents[0].name").value("사과"))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(productService).getProducts(eq(companyId), eq(null), captor.capture());
@@ -178,8 +179,8 @@ class ProductControllerTest {
                                 {"name": "배", "description": "달콤한 배", "price": 2000}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("배"))
-                .andExpect(jsonPath("$.price").value(2000));
+                .andExpect(jsonPath("$.data.name").value("배"))
+                .andExpect(jsonPath("$.data.price").value(2000));
     }
 
     @Test
