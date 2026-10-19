@@ -3,6 +3,8 @@ package connect.delivery_service.domain.service;
 import connect.delivery_service.global.exception.BaseException;
 import connect.delivery_service.global.exception.ErrorCode;
 import connect.delivery_service.client.AffiliationType;
+import connect.delivery_service.client.HubClient;
+import connect.delivery_service.client.HubRouteResponse;
 import connect.delivery_service.client.RoleType;
 import connect.delivery_service.domain.dto.CreateDeliveryRequest;
 import connect.delivery_service.domain.dto.DeliveryResponse;
@@ -12,6 +14,9 @@ import connect.delivery_service.domain.entity.DeliveryRouteStatus;
 import connect.delivery_service.domain.entity.DeliveryStatus;
 import connect.delivery_service.domain.repository.DeliveryRepository;
 import connect.delivery_service.domain.repository.DeliveryRouteRepository;
+import connect.delivery_service.global.dto.ApiResponse;
+import feign.FeignException;
+import feign.Request;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -24,6 +29,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,6 +50,9 @@ class DeliveryServiceTest {
 
     @Mock
     private DeliveryRouteRepository deliveryRouteRepository;
+
+    @Mock
+    private HubClient hubClient;
 
     @InjectMocks
     private DeliveryService deliveryService;
@@ -93,10 +103,25 @@ class DeliveryServiceTest {
             ReflectionTestUtils.setField(request, "deliveryAddress", "서울시 강남구");
         }
 
+        private void givenHubRoute(BigDecimal distance, Integer duration) {
+            HubRouteResponse hubRoute = new HubRouteResponse(UUID.randomUUID(),
+                    request.getDepartureHubId(), request.getArrivalHubId(), distance, duration);
+            given(hubClient.getRoute(request.getDepartureHubId(), request.getArrivalHubId()))
+                    .willReturn(ApiResponse.ok("이동 경로 조회 성공", hubRoute));
+        }
+
+        private FeignException hubError(int status) {
+            Request feignRequest = Request.create(Request.HttpMethod.GET, "/hubs/routes", Map.of(),
+                    null, StandardCharsets.UTF_8, null);
+            return FeignException.errorStatus("HubClient#getRoute",
+                    feign.Response.builder().status(status).request(feignRequest).headers(Map.of()).build());
+        }
+
         @Test
         @DisplayName("새 주문이면 배송과 배송 경로를 저장")
         void createNew() {
             given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+            givenHubRoute(new BigDecimal("123.45"), 95);
 
             DeliveryResponse response = deliveryService.createDelivery(request);
 
@@ -112,6 +137,61 @@ class DeliveryServiceTest {
         }
 
         @Test
+        @DisplayName("허브 서비스에서 받은 거리, 소요시간을 배송 경로의 예상값으로 저장")
+        void saveEstimatedValuesFromHub() {
+            given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+            givenHubRoute(new BigDecimal("123.45"), 95);
+
+            deliveryService.createDelivery(request);
+
+            ArgumentCaptor<DeliveryRoute> routeCaptor = ArgumentCaptor.forClass(DeliveryRoute.class);
+            verify(deliveryRouteRepository).save(routeCaptor.capture());
+            DeliveryRoute savedRoute = routeCaptor.getValue();
+            assertThat(savedRoute.getEstimatedDistance()).isEqualByComparingTo("123.45");
+            assertThat(savedRoute.getEstimatedDuration()).isEqualTo(95);
+            assertThat(savedRoute.getDepartureHubId()).isEqualTo(request.getDepartureHubId());
+            assertThat(savedRoute.getArrivalHubId()).isEqualTo(request.getArrivalHubId());
+        }
+
+        @Test
+        @DisplayName("허브 경로가 없으면(404) HUB_ROUTE_NOT_FOUND, 배송도 저장하지 않음")
+        void hubRouteNotFound() {
+            given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+            given(hubClient.getRoute(any(), any())).willThrow(hubError(404));
+
+            assertThatThrownBy(() -> deliveryService.createDelivery(request))
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.HUB_ROUTE_NOT_FOUND);
+            verify(deliveryRepository, never()).save(any());
+            verifyNoInteractions(deliveryRouteRepository);
+        }
+
+        @Test
+        @DisplayName("허브 서비스 오류면 HUB_SERVICE_UNAVAILABLE, 배송도 저장하지 않음")
+        void hubServiceError() {
+            given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+            given(hubClient.getRoute(any(), any())).willThrow(hubError(500));
+
+            assertThatThrownBy(() -> deliveryService.createDelivery(request))
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.HUB_SERVICE_UNAVAILABLE);
+            verify(deliveryRepository, never()).save(any());
+            verifyNoInteractions(deliveryRouteRepository);
+        }
+
+        @Test
+        @DisplayName("허브 응답에 data 가 없으면 HUB_ROUTE_NOT_FOUND")
+        void hubResponseWithoutData() {
+            given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+            given(hubClient.getRoute(any(), any())).willReturn(ApiResponse.ok("이동 경로 조회 성공", null));
+
+            assertThatThrownBy(() -> deliveryService.createDelivery(request))
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.HUB_ROUTE_NOT_FOUND);
+            verify(deliveryRepository, never()).save(any());
+        }
+
+        @Test
         @DisplayName("이미 배송이 있는 주문이면 저장하지 않고 기존 배송 반환")
         void alreadyExists() {
             given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.of(delivery));
@@ -120,7 +200,7 @@ class DeliveryServiceTest {
 
             assertThat(response.getId()).isEqualTo(deliveryId);
             verify(deliveryRepository, never()).save(any());
-            verifyNoInteractions(deliveryRouteRepository);
+            verifyNoInteractions(deliveryRouteRepository, hubClient);
         }
     }
 
