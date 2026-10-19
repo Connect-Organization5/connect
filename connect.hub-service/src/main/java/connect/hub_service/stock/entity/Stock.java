@@ -9,6 +9,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -30,6 +31,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "p_stocks",
         uniqueConstraints = @UniqueConstraint(name = "uk_stocks_hub_product", columnNames = {"hub_id", "product_id"}),
+        // 상품 단위 조회(일괄 삭제, 상품별 목록)용. 위 UNIQUE는 선두 컬럼이 hub_id라 product_id 단독 조회에 맞지 않는다.
+        indexes = @Index(name = "idx_stocks_product_id", columnList = "product_id"),
         check = @CheckConstraint(name = "ck_stocks_quantity_non_negative", constraint = "quantity >= 0"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Stock extends BaseEntity {

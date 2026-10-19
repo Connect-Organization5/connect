@@ -10,6 +10,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -41,6 +42,8 @@ import java.util.UUID;
 @Table(name = "p_stock_histories",
         uniqueConstraints = @UniqueConstraint(name = "uk_stock_history_type_idempotency",
                 columnNames = {"type", "idempotency_key"}),
+        // 차감·조정·복원·이력 조회가 모두 order_id로 찾는다.
+        indexes = @Index(name = "idx_stock_histories_order_id", columnList = "order_id"),
         check = @CheckConstraint(name = "ck_stock_histories_shape", constraint =
                 // CHECK는 결과가 NULL이면 통과하므로 필수 필드는 is not null을 명시해야 한다.
                 "(type in ('DECREASE', 'RESTORE') and idempotency_key = order_id"
