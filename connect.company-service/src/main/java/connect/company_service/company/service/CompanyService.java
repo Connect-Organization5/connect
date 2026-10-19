@@ -3,6 +3,7 @@ package connect.company_service.company.service;
 import connect.company_service.client.hub.HubClient;
 import connect.company_service.client.hub.HubValidator;
 import connect.company_service.client.hub.dto.StockDeleteRequest;
+import connect.company_service.company.dto.request.AssignManagerRequest;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -27,7 +28,6 @@ import java.util.UUID;
 public class CompanyService {
 
     private static final String ROLE_MASTER = "MASTER";
-    private static final String AFFILIATION_COMPANY = "COMPANY";
     private static final int MAX_PAGE_SIZE = 100;
     private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "createdAt");
 
@@ -38,10 +38,7 @@ public class CompanyService {
 
     // 업체 생성
     @Transactional
-    public CompanyResponse createCompany(UUID userId, String userRole, String affiliationType,
-                                         UUID affiliationId, CreateCompanyRequest request) {
-        validateCreateAccess(userRole, affiliationType, affiliationId);
-
+    public CompanyResponse createCompany(UUID userId, String userRole, CreateCompanyRequest request) {
         if (companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
             throw new BaseException(ErrorCode.COMPANY_ALREADY_EXISTS);
         }
@@ -49,8 +46,11 @@ public class CompanyService {
         // 존재하지 않는 Hub면 HUB_NOT_FOUND로 중단되어 저장하지 않는다
         hubValidator.validateHubExists(request.hubId());
 
+        // USER가 만들면 본인이 관리자, MASTER가 만들면 관리자 미지정(null)
+        UUID managerId = ROLE_MASTER.equals(userRole) ? null : userId;
+
         Company company = companyRepository.save(
-                Company.create(userId, request.hubId(), request.name(), request.address()));
+                Company.create(managerId, request.hubId(), request.name(), request.address()));
         return CompanyResponse.from(company);
     }
 
@@ -79,11 +79,10 @@ public class CompanyService {
 
     // 업체 수정
     @Transactional
-    public CompanyResponse updateCompany(UUID companyId, String userRole, String affiliationType,
-                                         UUID affiliationId, UpdateCompanyRequest request) {
+    public CompanyResponse updateCompany(UUID companyId, UUID userId, String userRole, UpdateCompanyRequest request) {
         Company company = findActiveCompany(companyId);
 
-        validateCompanyAccess(company, userRole, affiliationType, affiliationId);
+        validateCompanyAccess(company, userId, userRole);
 
         boolean nameChanged = !company.getName().equals(request.name());
         if (nameChanged && companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
@@ -98,13 +97,31 @@ public class CompanyService {
         return CompanyResponse.from(company);
     }
 
+    // 업체 관리자 지정 (MASTER만 허용)
+    @Transactional
+    public CompanyResponse assignManager(UUID companyId, String userRole, AssignManagerRequest request) {
+        if (!ROLE_MASTER.equals(userRole)) {
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
+        }
+
+        // 행 잠금으로 조회해 먼저 들어온 요청만 관리자를 지정한다
+        Company company = companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)
+                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+
+        if (company.getUserId() != null) {
+            throw new BaseException(ErrorCode.COMPANY_MANAGER_ALREADY_ASSIGNED);
+        }
+
+        company.assignManager(request.userId());
+        return CompanyResponse.from(company);
+    }
+
     // 업체 삭제
     @Transactional
-    public void deleteCompany(UUID companyId, UUID userId, String userRole, String affiliationType,
-                              UUID affiliationId) {
+    public void deleteCompany(UUID companyId, UUID userId, String userRole) {
         Company company = findActiveCompany(companyId);
 
-        validateCompanyAccess(company, userRole, affiliationType, affiliationId);
+        validateCompanyAccess(company, userId, userRole);
 
         List<UUID> productIds =
                 productService.deleteProductsByCompany(companyId, userId);
@@ -125,22 +142,13 @@ public class CompanyService {
                 .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
     }
 
-    // 업체 생성 권한 검증 (MASTER이거나 아직 소속 업체가 없는 업체 관리자)
-    private void validateCreateAccess(String userRole, String affiliationType, UUID affiliationId) {
+    // 업체 수정 및 삭제 권한 검증 (MASTER, 업체 관리자)
+    // 관리자 미지정(userId == null) 업체는 MASTER만 통과한다
+    private void validateCompanyAccess(Company company, UUID userId, String userRole) {
         if (ROLE_MASTER.equals(userRole)) {
             return;
         }
-        if (!AFFILIATION_COMPANY.equals(affiliationType) || affiliationId != null) {
-            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
-        }
-    }
-
-    // 업체 수정 및 삭제 권한 검증 (MASTER, 해당 업체에 소속된 사용자)
-    private void validateCompanyAccess(Company company, String userRole, String affiliationType, UUID affiliationId) {
-        if (ROLE_MASTER.equals(userRole)) {
-            return;
-        }
-        if (!AFFILIATION_COMPANY.equals(affiliationType) || !company.getId().equals(affiliationId)) {
+        if (!userId.equals(company.getUserId())) {
             throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
         }
     }
