@@ -2,7 +2,7 @@ package connect.user_service.domain.auth.controller;
 
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UpdateUserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.security.JwtUtil;
@@ -30,9 +30,9 @@ public class AuthController {
 
     // MASTER 가 같은 소속의 회원을 생성 (생성된 회원의 토큰은 발급하지 않음)
     @PostMapping("/signup")
-    public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignUpRequestDto requestDto,
-                                               @AuthenticationPrincipal UserDetailsImpl userDetails) {
-        UserResponse response = userService.signup(requestDto, userDetails.getUser());
+    public ResponseEntity<UpdateUserResponse> signup(@Valid @RequestBody SignUpRequestDto requestDto,
+                                                     @AuthenticationPrincipal UserDetailsImpl userDetails) {
+        UpdateUserResponse response = userService.signup(requestDto, userDetails.getUser());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

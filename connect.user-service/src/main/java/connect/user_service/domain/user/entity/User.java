@@ -7,6 +7,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.util.UUID;
+
 @Entity
 @Getter
 @Setter
@@ -17,8 +19,8 @@ import org.hibernate.annotations.SQLRestriction;
 @SQLRestriction("deleted_at IS NULL") // 논리적으로 삭제된 회원은 모든 조회에서 제외
 public class User extends TimeStamp {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @Column(nullable = false, unique = true)
     private String username;
@@ -38,12 +40,12 @@ public class User extends TimeStamp {
     private AffiliationType affiliationType;
 
     @Column(nullable = false)
-    private Long affiliationId;
+    private UUID affiliationId;
 
     @Column(nullable = false, unique = true)
     private String slackId;
 
-    public User(String username, String password, String email, UserRole role, AffiliationType affiliationType, Long affiliationId, String slackId) {
+    public User(String username, String password, String email, UserRole role, AffiliationType affiliationType, UUID affiliationId, String slackId) {
         this.username = username;
         this.password = password;
         this.email = email;

@@ -10,6 +10,8 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.UUID;
+
 // PUT 방식이므로 모든 필드 필수 (username, 소속은 변경 불가)
 @Getter
 @Setter
@@ -34,5 +36,5 @@ public class UpdateUserRequestDto {
     private AffiliationType affiliationType;
 
     @Null(message = "소속은 변경할 수 없습니다.")
-    private Long affiliationId;
+    private UUID affiliationId;
 }

@@ -1,7 +1,7 @@
 package connect.user_service.domain.user.controller;
 
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UpdateUserResponse;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,6 +49,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(MockitoExtension.class)
 class UserControllerTest {
 
+    private static final UUID AFFILIATION_ID = UUID.fromString("00000000-0000-0000-0000-000000001000");
+
+    // 테스트용 고정 UUID (idOf(1) → 00000000-0000-0000-0000-000000000001)
+    private static UUID idOf(long no) {
+        return UUID.fromString("00000000-0000-0000-0000-%012d".formatted(no));
+    }
+
     @Mock
     private UserService userService;
 
@@ -67,8 +75,8 @@ class UserControllerTest {
                 .build();
 
         // JwtAuthorizationFilter 가 하는 것처럼 로그인 회원을 SecurityContext 에 저장
-        loginUser = new User("master", "encodedPw", "master@test.com", UserRole.MASTER, AffiliationType.COMPANY, 1000L, "slack-master");
-        loginUser.setId(1L);
+        loginUser = new User("master", "encodedPw", "master@test.com", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID, "slack-master");
+        loginUser.setId(idOf(1));
         UserDetailsImpl userDetails = new UserDetailsImpl(loginUser);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
@@ -83,17 +91,17 @@ class UserControllerTest {
     @DisplayName("GET /users/{userId} - 회원 단건 조회 성공, 로그인 회원을 요청자로 전달")
     void getUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(1L, "tester", "tester@test.com", AffiliationType.COMPANY, 1L, "slack-1");
-        given(userService.getUser(eq(1L), same(loginUser))).willReturn(response);
+        UpdateUserResponse response = new UpdateUserResponse(idOf(1), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1");
+        given(userService.getUser(eq(idOf(1)), same(loginUser))).willReturn(response);
 
         // when & then
-        mockMvc.perform(get("/users/{userId}", 1L))
+        mockMvc.perform(get("/users/{userId}", idOf(1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1L))
+                .andExpect(jsonPath("$.id").value(idOf(1).toString()))
                 .andExpect(jsonPath("$.username").value("tester"))
                 .andExpect(jsonPath("$.email").value("tester@test.com"))
                 .andExpect(jsonPath("$.affiliationType").value("COMPANY"))
-                .andExpect(jsonPath("$.affiliationId").value(1L))
+                .andExpect(jsonPath("$.affiliationId").value(AFFILIATION_ID.toString()))
                 .andExpect(jsonPath("$.slackId").value("slack-1"));
     }
 
@@ -101,10 +109,10 @@ class UserControllerTest {
     @DisplayName("GET /users/{userId} - 존재하지 않는 회원이면 404")
     void getUser_notFound() throws Exception {
         // given
-        given(userService.getUser(eq(999L), any(User.class))).willThrow(new BaseException(ErrorCode.USER_NOT_FOUND));
+        given(userService.getUser(eq(idOf(999)), any(User.class))).willThrow(new BaseException(ErrorCode.USER_NOT_FOUND));
 
         // when & then
-        mockMvc.perform(get("/users/{userId}", 999L))
+        mockMvc.perform(get("/users/{userId}", idOf(999)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"))
@@ -115,16 +123,16 @@ class UserControllerTest {
     @DisplayName("GET /users/{userId} - 다른 회원 조회 권한이 없으면 403 USER_ACCESS_DENIED")
     void getUser_accessDenied() throws Exception {
         // given
-        given(userService.getUser(eq(2L), any(User.class))).willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED));
+        given(userService.getUser(eq(idOf(2)), any(User.class))).willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED));
 
         // when & then
-        mockMvc.perform(get("/users/{userId}", 2L))
+        mockMvc.perform(get("/users/{userId}", idOf(2)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("USER_ACCESS_DENIED"));
     }
 
     @Test
-    @DisplayName("GET /users/{userId} - userId가 숫자가 아니면 400")
+    @DisplayName("GET /users/{userId} - userId가 UUID 형식이 아니면 400")
     void getUser_invalidUserId() throws Exception {
         mockMvc.perform(get("/users/{userId}", "abc"))
                 .andExpect(status().isBadRequest())
@@ -142,7 +150,7 @@ class UserControllerTest {
             }
             """;
 
-    private ResultActions update(Long userId, String body) throws Exception {
+    private ResultActions update(UUID userId, String body) throws Exception {
         return mockMvc.perform(put("/users/{userId}", userId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
@@ -152,16 +160,16 @@ class UserControllerTest {
     @DisplayName("PUT /users/{userId} - 성공 시 200 과 수정된 회원 정보, 로그인 회원을 요청자로 전달")
     void updateUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(2L, "tester", "new@test.com", AffiliationType.COMPANY, 1000L, "new-slack");
-        given(userService.updateUser(eq(2L), any(UpdateUserRequestDto.class), same(loginUser))).willReturn(response);
+        UpdateUserResponse response = new UpdateUserResponse(idOf(2), "tester", "new@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "new-slack");
+        given(userService.updateUser(eq(idOf(2)), any(UpdateUserRequestDto.class), same(loginUser))).willReturn(response);
 
         // when & then
-        update(2L, VALID_UPDATE_BODY)
+        update(idOf(2), VALID_UPDATE_BODY)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(2L))
+                .andExpect(jsonPath("$.id").value(idOf(2).toString()))
                 .andExpect(jsonPath("$.email").value("new@test.com"))
                 .andExpect(jsonPath("$.affiliationType").value("COMPANY"))
-                .andExpect(jsonPath("$.affiliationId").value(1000L))
+                .andExpect(jsonPath("$.affiliationId").value(AFFILIATION_ID.toString()))
                 .andExpect(jsonPath("$.slackId").value("new-slack"))
                 .andExpect(jsonPath("$.password").doesNotExist());
     }
@@ -170,11 +178,11 @@ class UserControllerTest {
     @DisplayName("PUT /users/{userId} - 권한이 없으면 403 USER_ACCESS_DENIED")
     void updateUser_accessDenied() throws Exception {
         // given
-        given(userService.updateUser(eq(2L), any(UpdateUserRequestDto.class), any(User.class)))
+        given(userService.updateUser(eq(idOf(2)), any(UpdateUserRequestDto.class), any(User.class)))
                 .willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED));
 
         // when & then
-        update(2L, VALID_UPDATE_BODY)
+        update(idOf(2), VALID_UPDATE_BODY)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("USER_ACCESS_DENIED"));
     }
@@ -183,11 +191,11 @@ class UserControllerTest {
     @DisplayName("PUT /users/{userId} - 대상 회원이 없으면 404 USER_NOT_FOUND")
     void updateUser_notFound() throws Exception {
         // given
-        given(userService.updateUser(eq(999L), any(UpdateUserRequestDto.class), any(User.class)))
+        given(userService.updateUser(eq(idOf(999)), any(UpdateUserRequestDto.class), any(User.class)))
                 .willThrow(new BaseException(ErrorCode.USER_NOT_FOUND));
 
         // when & then
-        update(999L, VALID_UPDATE_BODY)
+        update(idOf(999), VALID_UPDATE_BODY)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
     }
@@ -195,7 +203,7 @@ class UserControllerTest {
     @Test
     @DisplayName("PUT /users/{userId} - PUT 이므로 필드가 하나라도 빠지면 400 VALIDATION_FAILED")
     void updateUser_missingFields() throws Exception {
-        update(2L, """
+        update(idOf(2), """
                 { "email": "new@test.com" }
                 """)
                 .andExpect(status().isBadRequest())
@@ -210,9 +218,9 @@ class UserControllerTest {
     @DisplayName("PUT /users/{userId} - 소속을 보내면 무시하지 않고 400 VALIDATION_FAILED")
     void updateUser_affiliationNotAllowed() throws Exception {
         String body = VALID_UPDATE_BODY.replace("\"role\": \"MASTER\"",
-                "\"role\": \"MASTER\", \"affiliationType\": \"HUB\", \"affiliationId\": 2000");
+                "\"role\": \"MASTER\", \"affiliationType\": \"HUB\", \"affiliationId\": \"00000000-0000-0000-0000-000000002000\"");
 
-        update(2L, body)
+        update(idOf(2), body)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.message").value(containsString("affiliationType: 소속은 변경할 수 없습니다.")))
@@ -223,7 +231,7 @@ class UserControllerTest {
     @Test
     @DisplayName("PUT /users/{userId} - 없는 role 값이면 400 INVALID_INPUT")
     void updateUser_invalidRole() throws Exception {
-        update(2L, VALID_UPDATE_BODY.replace("\"MASTER\"", "\"ADMIN\""))
+        update(idOf(2), VALID_UPDATE_BODY.replace("\"MASTER\"", "\"ADMIN\""))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         then(userService).should(never()).updateUser(any(), any(), any());
@@ -235,9 +243,9 @@ class UserControllerTest {
     @DisplayName("GET /users - 성공 시 200 과 PageResponse 형식, 로그인 회원을 요청자로 전달")
     void getAllUsers_success() throws Exception {
         // given
-        PageResponse<UserResponse> response = new PageResponse<>(
-                List.of(new UserResponse(1L, "master", "master@test.com", AffiliationType.COMPANY, 1000L, "slack-master"),
-                        new UserResponse(2L, "tester", "tester@test.com", AffiliationType.COMPANY, 1000L, "slack-1")),
+        PageResponse<UpdateUserResponse> response = new PageResponse<>(
+                List.of(new UpdateUserResponse(idOf(1), "master", "master@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-master"),
+                        new UpdateUserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1")),
                 1, 2, 5, 3);
         given(userService.getAllUsers(same(loginUser), eq(1), eq(2))).willReturn(response);
 
@@ -245,8 +253,8 @@ class UserControllerTest {
         mockMvc.perform(get("/users").param("page", "1").param("size", "2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
-                .andExpect(jsonPath("$.content[0].id").value(1L))
-                .andExpect(jsonPath("$.content[1].id").value(2L))
+                .andExpect(jsonPath("$.content[0].id").value(idOf(1).toString()))
+                .andExpect(jsonPath("$.content[1].id").value(idOf(2).toString()))
                 .andExpect(jsonPath("$.page").value(1))
                 .andExpect(jsonPath("$.size").value(2))
                 .andExpect(jsonPath("$.totalElements").value(5))
@@ -330,10 +338,10 @@ class UserControllerTest {
     @Test
     @DisplayName("DELETE /users/{userId} - 성공 시 204 No Content, 로그인 회원을 요청자로 전달")
     void deleteUser_success() throws Exception {
-        mockMvc.perform(delete("/users/{userId}", 2L))
+        mockMvc.perform(delete("/users/{userId}", idOf(2)))
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
-        then(userService).should().deleteUser(eq(2L), same(loginUser));
+        then(userService).should().deleteUser(eq(idOf(2)), same(loginUser));
     }
 
     @Test
@@ -341,10 +349,10 @@ class UserControllerTest {
     void deleteUser_accessDenied() throws Exception {
         // given
         willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED))
-                .given(userService).deleteUser(eq(2L), any(User.class));
+                .given(userService).deleteUser(eq(idOf(2)), any(User.class));
 
         // when & then
-        mockMvc.perform(delete("/users/{userId}", 2L))
+        mockMvc.perform(delete("/users/{userId}", idOf(2)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("USER_ACCESS_DENIED"));
     }
@@ -354,16 +362,16 @@ class UserControllerTest {
     void deleteUser_notFound() throws Exception {
         // given
         willThrow(new BaseException(ErrorCode.USER_NOT_FOUND))
-                .given(userService).deleteUser(eq(999L), any(User.class));
+                .given(userService).deleteUser(eq(idOf(999)), any(User.class));
 
         // when & then
-        mockMvc.perform(delete("/users/{userId}", 999L))
+        mockMvc.perform(delete("/users/{userId}", idOf(999)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
     }
 
     @Test
-    @DisplayName("DELETE /users/{userId} - userId가 숫자가 아니면 400 INVALID_INPUT")
+    @DisplayName("DELETE /users/{userId} - userId가 UUID 형식이 아니면 400 INVALID_INPUT")
     void deleteUser_invalidUserId() throws Exception {
         mockMvc.perform(delete("/users/{userId}", "abc"))
                 .andExpect(status().isBadRequest())

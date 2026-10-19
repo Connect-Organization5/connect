@@ -3,17 +3,19 @@ package connect.user_service.domain.user.dto.response;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 
-public record UserResponse (
-    Long id,
+import java.util.UUID;
+
+public record UpdateUserResponse(
+    UUID id,
     String username,
     String email,
     AffiliationType affiliationType,
-    Long affiliationId,
+    UUID affiliationId,
     String slackId
     ){
 
-    public static UserResponse from(User user) {
-        return new UserResponse(
+    public static UpdateUserResponse from(User user) {
+        return new UpdateUserResponse(
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
