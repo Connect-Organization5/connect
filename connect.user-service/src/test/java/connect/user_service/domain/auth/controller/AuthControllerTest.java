@@ -103,9 +103,12 @@ class AuthControllerTest {
         // when & then
         signup(VALID_BODY)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(idOf(2).toString()))
-                .andExpect(jsonPath("$.username").value("tester"))
-                .andExpect(jsonPath("$.access_token").doesNotExist());
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원가입이 완료되었습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.id").value(idOf(2).toString()))
+                .andExpect(jsonPath("$.data.username").value("tester"))
+                .andExpect(jsonPath("$.data.access_token").doesNotExist());
 
         ArgumentCaptor<SignUpRequestDto> captor = ArgumentCaptor.forClass(SignUpRequestDto.class);
         then(userService).should().signup(captor.capture());
@@ -129,7 +132,7 @@ class AuthControllerTest {
         // when & then
         signup(body)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.role").doesNotExist());
+                .andExpect(jsonPath("$.data.role").doesNotExist());
 
         // SignUpRequestDto 에는 role 필드가 없어 서비스로 전달되지 않음 (USER 고정은 UserService.signup 이 담당)
         assertThat(SignUpRequestDto.class.getDeclaredFields())
@@ -245,7 +248,10 @@ class AuthControllerTest {
                 { "username": "tester", "password": "password1!" }
                 """)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.access_token").value("test-token"));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("로그인에 성공했습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.access_token").value("test-token"));
         then(jwtUtil).should().createAccessToken(same(user));
     }
 

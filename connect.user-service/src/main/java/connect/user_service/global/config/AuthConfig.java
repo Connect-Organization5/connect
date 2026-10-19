@@ -1,5 +1,6 @@
 package connect.user_service.global.config;
 
+import connect.user_service.global.security.CustomAccessDeniedHandler;
 import connect.user_service.global.security.CustomAuthenticationEntryPoint;
 import connect.user_service.global.security.JwtAuthorizationFilter;
 import connect.user_service.global.security.JwtUtil;
@@ -20,6 +21,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class AuthConfig {
 
     private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
+    private final CustomAccessDeniedHandler customAccessDeniedHandler;
     private final JwtUtil jwtUtil;
     private final UserDetailsServiceImpl userDetailsService;
 
@@ -55,10 +57,11 @@ public class AuthConfig {
         http
                 .addFilterBefore(new JwtAuthorizationFilter(jwtUtil, userDetailsService), UsernamePasswordAuthenticationFilter.class);
 
-        // 인증 실패(401) 시 ErrorResponse 형식으로 응답합니다.
+        // 인증 실패(401), 권한 부족(403) 시 ErrorResponse 형식으로 응답합니다.
         http
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(customAuthenticationEntryPoint)
+                        .accessDeniedHandler(customAccessDeniedHandler)
                 );
 
         // 설정된 보안 필터 체인을 반환합니다.

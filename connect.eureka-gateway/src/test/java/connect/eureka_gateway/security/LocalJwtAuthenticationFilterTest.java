@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -97,9 +98,18 @@ class LocalJwtAuthenticationFilterTest {
         return MockServerWebExchange.from(request);
     }
 
-    private void assertUnauthorized(MockServerWebExchange exchange) {
+    // 401 과 함께 공통 에러 형식 {code, message} 본문을 반환하는지 확인 (토큰 없음: UNAUTHORIZED, 토큰 검증 실패: INVALID_TOKEN)
+    private void assertUnauthorized(String expectedCode, MockServerWebExchange exchange) {
         filter.filter(exchange, chain).block();
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(exchange.getResponse().getHeaders().getContentType())
+                .satisfies(type -> assertThat(type.isCompatibleWith(MediaType.APPLICATION_JSON)).isTrue());
+
+        String body = exchange.getResponse().getBodyAsString().block();
+        String expectedMessage = expectedCode.equals("UNAUTHORIZED")
+                ? "인증이 필요합니다."
+                : "유효하지 않거나 만료된 토큰입니다.";
+        assertThat(body).isEqualTo("{\"code\":\"" + expectedCode + "\",\"message\":\"" + expectedMessage + "\"}");
         assertThat(chain.exchange).isNull(); // 하위 서비스로 전달되지 않음
     }
 
@@ -139,7 +149,7 @@ class LocalJwtAuthenticationFilterTest {
     @Test
     @DisplayName("JWT 가 없으면 401")
     void noToken_unauthorized() {
-        assertUnauthorized(exchange("/companies", null));
+        assertUnauthorized("UNAUTHORIZED", exchange("/companies", null));
     }
 
     @Test
@@ -147,21 +157,21 @@ class LocalJwtAuthenticationFilterTest {
     void notBearer_unauthorized() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/companies").header(HttpHeaders.AUTHORIZATION, validToken("USER")));
-        assertUnauthorized(exchange);
+        assertUnauthorized("UNAUTHORIZED", exchange);
     }
 
     @Test
     @DisplayName("만료된 JWT 면 401")
     void expiredToken_unauthorized() {
         String expired = tokenBuilder(SECRET_KEY, userClaims("USER"), -60_000).compact();
-        assertUnauthorized(exchange("/companies", expired));
+        assertUnauthorized("INVALID_TOKEN", exchange("/companies", expired));
     }
 
     @Test
     @DisplayName("다른 키로 서명된 JWT 면 401")
     void wrongSignature_unauthorized() {
         String forged = tokenBuilder(randomKey(), userClaims("MASTER"), 60_000).compact();
-        assertUnauthorized(exchange("/companies", forged));
+        assertUnauthorized("INVALID_TOKEN", exchange("/companies", forged));
     }
 
     @Test
@@ -173,7 +183,7 @@ class LocalJwtAuthenticationFilterTest {
             String token = tokenBuilder(SECRET_KEY, claims, 60_000).compact();
 
             chain = new CapturingChain();
-            assertUnauthorized(exchange("/companies", token));
+            assertUnauthorized("INVALID_TOKEN", exchange("/companies", token));
         }
     }
 
@@ -181,7 +191,7 @@ class LocalJwtAuthenticationFilterTest {
     @DisplayName("username 만 있는 기존 형식 토큰이면 401")
     void legacyUsernameOnlyToken_unauthorized() {
         String legacy = tokenBuilder(SECRET_KEY, Map.of(), 60_000).compact();
-        assertUnauthorized(exchange("/companies", legacy));
+        assertUnauthorized("INVALID_TOKEN", exchange("/companies", legacy));
     }
 
     @Test
@@ -189,18 +199,18 @@ class LocalJwtAuthenticationFilterTest {
     void invalidUuidClaim_unauthorized() {
         Map<String, String> badUserId = new java.util.HashMap<>(userClaims("USER"));
         badUserId.put("userId", "1");
-        assertUnauthorized(exchange("/companies", tokenBuilder(SECRET_KEY, badUserId, 60_000).compact()));
+        assertUnauthorized("INVALID_TOKEN", exchange("/companies", tokenBuilder(SECRET_KEY, badUserId, 60_000).compact()));
 
         Map<String, String> badAffiliation = new java.util.HashMap<>(userClaims("USER"));
         badAffiliation.put("affiliationId", "not-a-uuid");
         chain = new CapturingChain();
-        assertUnauthorized(exchange("/companies", tokenBuilder(SECRET_KEY, badAffiliation, 60_000).compact()));
+        assertUnauthorized("INVALID_TOKEN", exchange("/companies", tokenBuilder(SECRET_KEY, badAffiliation, 60_000).compact()));
     }
 
     @Test
     @DisplayName("JWT 없이 X-User-Role: MASTER 를 보내도 401 (헤더를 신뢰하지 않음)")
     void spoofedHeaderWithoutToken_unauthorized() {
-        assertUnauthorized(exchange("/orders", null,
+        assertUnauthorized("UNAUTHORIZED", exchange("/orders", null,
                 "X-User-Id", UUID.randomUUID().toString(), "X-User-Role", "MASTER"));
     }
 

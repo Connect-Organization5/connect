@@ -1,12 +1,10 @@
 package connect.user_service.global.exception;
 
-import java.time.LocalDateTime;
-
+// 에러 응답 공통 형식 (Company Service 와 동일하게 code, message 만 반환)
+// HTTP 상태는 본문이 아니라 실제 응답 상태 코드로 전달한다 (ErrorCode.getStatus())
 public record ErrorResponse(
-        int status,
         String code,
-        String message,
-        LocalDateTime timestamp
+        String message
 ) {
 
     public static ErrorResponse of(ErrorCode errorCode) {
@@ -14,11 +12,6 @@ public record ErrorResponse(
     }
 
     public static ErrorResponse of(ErrorCode errorCode, String message) {
-        return new ErrorResponse(
-                errorCode.getStatus().value(),
-                errorCode.name(),
-                message,
-                LocalDateTime.now()
-        );
+        return new ErrorResponse(errorCode.name(), message);
     }
 }
