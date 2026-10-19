@@ -40,9 +40,9 @@ public class HubFeignClient implements HubClient {
     }
 
     @Override
-    public boolean adjustStock(UUID orderId, UUID hubId, UUID productId, int quantityDelta) {
+    public boolean adjustStock(UUID adjustmentId, UUID orderId, UUID hubId, UUID productId, int quantityDelta) {
         try {
-            hubFeignApi.adjustStock(new StockAdjustRequest(UUID.randomUUID(), orderId, hubId, productId, quantityDelta));
+            hubFeignApi.adjustStock(new StockAdjustRequest(adjustmentId, orderId, hubId, productId, quantityDelta));
             return true;
         } catch (FeignException.Conflict e) {
             return false;   // 재고 부족

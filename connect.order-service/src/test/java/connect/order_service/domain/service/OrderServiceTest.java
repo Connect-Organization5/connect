@@ -68,9 +68,8 @@ class OrderServiceTest {
     @DisplayName("소속 타입을 알 수 없으면 주문 불가 AFFILIATION_NOT_FOUND")
     void createOrder_unknownAffiliation() {
         UUID myId = UUID.randomUUID();
-        when(userClient.getUser(myId)).thenReturn(new UserInfo(myId, null, "NONE", null));
 
-        assertThatThrownBy(() -> orderService.createOrder(myId, createRequest(3)))
+        assertThatThrownBy(() -> orderService.createOrder(myId, "NONE", null, createRequest(3)))
                 .hasMessage(ErrorCode.AFFILIATION_NOT_FOUND.getMessage());  // 에러 메시지 확인
         verify(orderRepository, never()).save(any());   // 주문이 저장되지 않음
     }
@@ -82,7 +81,7 @@ class OrderServiceTest {
         givenOrdererAndProduct(myId);
         when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(false);
 
-        assertThatThrownBy(() -> orderService.createOrder(myId, createRequest(3)))
+        assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
                 .hasMessage(ErrorCode.OUT_OF_STOCK.getMessage());               // 에러 메시지 확인
         verify(deliveryClient, never()).createDelivery(any());                  // 배송 생성 안 함
         assertThat(lastSavedOrder().getStatus()).isEqualTo(OrderStatus.FAILED); // 주문은 생성되고 상태가 실패
@@ -96,7 +95,7 @@ class OrderServiceTest {
         when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(true);
         when(deliveryClient.createDelivery(any())).thenThrow(new RuntimeException());
 
-        assertThatThrownBy(() -> orderService.createOrder(myId, createRequest(3)))
+        assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
                 .hasMessage(ErrorCode.DELIVERY_CREATE_FAILED.getMessage());         // 오류 메시지 확인
         verify(hubClient).restoreStock(any(), eq(supplierHubId), eq(productId));  // 주문 실패 시 재고 복구 로직 실행
         assertThat(lastSavedOrder().getStatus()).isEqualTo(OrderStatus.FAILED);     // 주문은 생성되고 상태가 실패
@@ -109,9 +108,26 @@ class OrderServiceTest {
         givenOrdererAndProduct(myId);
         when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(true);
         when(deliveryClient.createDelivery(any())).thenReturn(deliveryId);
+        when(userClient.getUser(myId)).thenReturn(new UserInfo(myId, null, "COMPANY", requesterCompanyId));
         when(userClient.getUser(managerId)).thenThrow(new RuntimeException());   // 알림 전송 작업 실패
 
-        orderService.createOrder(myId, createRequest(3));                         // 주문 작업은 정상  동작
+        orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3));                         // 주문 작업은 정상  동작
+
+        Order saved = lastSavedOrder();
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.CREATED);   // 주문은 정상 생성
+        assertThat(saved.getDeliveryId()).isEqualTo(deliveryId);
+    }
+
+    @Test
+    @DisplayName("주문자 조회가 실패해도 주문은 생성된다")
+    void createOrder_ordererLookupFailed() {
+        UUID myId = UUID.randomUUID();
+        givenOrdererAndProduct(myId);
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(true);
+        when(deliveryClient.createDelivery(any())).thenReturn(deliveryId);
+        when(userClient.getUser(myId)).thenThrow(new RuntimeException());   // 주문자 조회 실패
+
+        orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3));  // 주문 작업은 정상 동작
 
         Order saved = lastSavedOrder();
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.CREATED);   // 주문은 정상 생성
@@ -260,10 +276,10 @@ class OrderServiceTest {
         when(orderRepository.findAllByDeletedAtIsNull(any(Pageable.class)))
                 .thenReturn(Page.empty());
 
-        orderService.searchReceivedPageOrders(myId, "MASTER", 0, 10);
+        orderService.searchReceivedPageOrders(myId, "MASTER", null, null, 0, 10);
 
         verify(orderRepository).findAllByDeletedAtIsNull(any(Pageable.class));  // 목록 조회가 정상적으로 실행
-        verify(userClient, never()).getUser(any());    // master는 관리자인지 확인하는 과정을 거치지 않음
+        verify(companyClient, never()).getSupplyCompany(any());    // master는 관리자인지 확인하는 과정을 거치지 않음
     }
 
     @Test
@@ -272,14 +288,13 @@ class OrderServiceTest {
         UUID myId = UUID.randomUUID();
         UUID companyId = UUID.randomUUID();
 
-        when(userClient.getUser(myId)).thenReturn(new UserInfo(myId, null, "COMPANY", companyId));
         // company-service: myId가 담당하는 업체는 companyId
         CompanyInfo company = new CompanyInfo(companyId, myId, UUID.randomUUID(), "회사 이름", "주소" );
         when(companyClient.getSupplyCompany(companyId)).thenReturn(company);                                                                                                                                                                when(orderRepository.findAllBySupplierCompanyIdAndStatusNotAndDeletedAtIsNull(
                 eq(companyId), eq(OrderStatus.FAILED), any(Pageable.class)))
                 .thenReturn(Page.empty());
 
-        orderService.searchReceivedPageOrders(myId, "USER", 0, 10);
+        orderService.searchReceivedPageOrders(myId, "USER", "COMPANY", companyId, 0, 10);
 
         verify(orderRepository).findAllBySupplierCompanyIdAndStatusNotAndDeletedAtIsNull(
                 eq(companyId), eq(OrderStatus.FAILED), any(Pageable.class));    // 메소드가 정상적으로 실행
@@ -291,11 +306,11 @@ class OrderServiceTest {
     void searchReceivedPageOrders_notManager() {
         UUID myId = UUID.randomUUID();
         UUID companyId = UUID.randomUUID();
-        when(userClient.getUser(myId)).thenReturn(new UserInfo(myId, null, "COMPANY", companyId));   // 소속은 맞음
         when(companyClient.getSupplyCompany(companyId))
                 .thenReturn(new CompanyInfo(companyId, UUID.randomUUID(), UUID.randomUUID(), "이름", "주소")); // 담당자는 다른 사람
 
-        assertThatThrownBy(() -> orderService.searchReceivedPageOrders(myId, "USER", 0, 10))
+        // 소속은 맞음
+        assertThatThrownBy(() -> orderService.searchReceivedPageOrders(myId, "USER", "COMPANY", companyId, 0, 10))
                 .isInstanceOf(BaseException.class)
                 .hasMessage(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED.getMessage());   // 예외 메시지 확인
 
@@ -307,9 +322,8 @@ class OrderServiceTest {
     @DisplayName("허브 소속 유저는 받은 주문 목록 조회 불가 RECEIVED_ORDER_ACCESS_DENIED")
     void searchReceivedPageOrders_hubUser() {
         UUID myId = UUID.randomUUID();
-        when(userClient.getUser(myId)).thenReturn(new UserInfo(myId, null, "HUB", UUID.randomUUID()));
 
-        assertThatThrownBy(() -> orderService.searchReceivedPageOrders(myId, "USER", 0, 10))
+        assertThatThrownBy(() -> orderService.searchReceivedPageOrders(myId, "USER", "HUB", UUID.randomUUID(), 0, 10))
                 .hasMessage(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED.getMessage());
         verify(companyClient, never()).getSupplyCompany(any());   // 업체 조회까지 가지 않음
     }
@@ -350,7 +364,7 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.ORDER_DELIVERY_STARTED.getMessage());     // 오류 메시지 확인
-        verify(hubClient, never()).adjustStock(any(), any(), any(), anyInt());  // 재고 차감 메소드가 실행되지 않음
+        verify(hubClient, never()).adjustStock(any(), any(), any(), any(), anyInt());  // 재고 차감 메소드가 실행되지 않음
         assertThat(order.getQuantity()).isEqualTo(3);   // 수량이 변하지 않음
     }
 
@@ -364,7 +378,7 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.DELIVERY_NOT_FOUND.getMessage());         // 오류 메시지 확인
-        verify(hubClient, never()).adjustStock(any(), any(), any(), anyInt());  // 재고 조정 메소드가 실행되지 않음
+        verify(hubClient, never()).adjustStock(any(), any(), any(), any(), anyInt());  // 재고 조정 메소드가 실행되지 않음
         assertThat(order.getQuantity()).isEqualTo(3);   // 수량이 변하지 않음
     }
 
@@ -391,7 +405,7 @@ class OrderServiceTest {
         when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
-        when(hubClient.adjustStock(any(), any(), any(), eq(2))).thenReturn(false);   // 재고 차감 실패
+        when(hubClient.adjustStock(any(), any(), any(), any(), eq(2))).thenReturn(false);   // 재고 차감 실패
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.OUT_OF_STOCK_FOR_UPDATE.getMessage());    // 오류 메시지 확인
@@ -408,12 +422,12 @@ class OrderServiceTest {
         when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
-        when(hubClient.adjustStock(any(), any(), any(), eq(2))).thenReturn(true);    // 수량 차감 성공
+        when(hubClient.adjustStock(any(), any(), any(), any(), eq(2))).thenReturn(true);    // 수량 차감 성공
         doThrow(new RuntimeException()).when(deliveryClient).changeReceiver(any(), any(), any(), any());  // 배송 수정에 오류
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.DELIVERY_UPDATE_FAILED.getMessage());
-        verify(hubClient).adjustStock(any(), any(), any(), eq(-2));   // 재고 롤백 진행
+        verify(hubClient).adjustStock(any(), any(), any(), any(), eq(-2));   // 재고 롤백 진행
         assertThat(order.getQuantity()).isEqualTo(3);   // 주문 수량이 변경되지 않음
         verify(orderRepository, never()).save(any());   // 수정 주문 저장이 이루어지지 않음
     }
@@ -436,14 +450,12 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("주문 취소 불가능한 사람의 취소 요청 ORDER_DELETE_DENIED")
+    @DisplayName("주문자도 MASTER도 아닌 사람의 취소 요청 ORDER_DELETE_DENIED")
     void deleteOrder_denied() {
         UUID myId = UUID.randomUUID();
         UUID otherId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         givenCreatedOrder(orderId, otherId);    // 주문자 - 다른 사람
-        when(companyClient.getSupplyCompany(supplierCompanyId))
-                .thenReturn(new CompanyInfo(supplierCompanyId, otherId, UUID.randomUUID(), "회사 이름", "주소"));  // 담당자 - 다른 사람
 
         assertThatThrownBy(() -> orderService.deleteOrder(myId, "USER", orderId))
                 .hasMessage(ErrorCode.ORDER_DELETE_DENIED.getMessage());    // 예외 메시지 확인
@@ -500,8 +512,6 @@ class OrderServiceTest {
 //    ------------------------------ Helper Method -----------------------------------
 
     private void givenOrdererAndProduct(UUID myId) {
-        when(userClient.getUser(myId))
-                .thenReturn(new UserInfo(myId, null, "COMPANY", requesterCompanyId));
         when(companyClient.getSupplyCompany(requesterCompanyId))
                 .thenReturn(new CompanyInfo(requesterCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "요청 업체 주소"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
