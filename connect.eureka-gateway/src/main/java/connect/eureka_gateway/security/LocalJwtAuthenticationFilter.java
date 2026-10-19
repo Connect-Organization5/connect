@@ -19,7 +19,13 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import javax.crypto.SecretKey;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+import static org.springframework.cloud.gateway.support.ServerWebExchangeUtils.GATEWAY_ORIGINAL_REQUEST_URL_ATTR;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.UUID;
@@ -49,6 +55,9 @@ public class LocalJwtAuthenticationFilter implements GlobalFilter {
     static final String INVALID_TOKEN_CODE = "INVALID_TOKEN";
     static final String INVALID_TOKEN_MESSAGE = "유효하지 않거나 만료된 토큰입니다.";
 
+    // 서비스별 OpenAPI 문서 경로 (/docs/{서비스}/v3/api-docs). 이 형태와 정확히 일치할 때만 인증 예외
+    private static final Pattern API_DOCS_PATH = Pattern.compile("^/docs/[a-z-]+/v3/api-docs$");
+
     @Value("${service.jwt.secret-key}")
     private String secretKey;
 
@@ -58,6 +67,11 @@ public class LocalJwtAuthenticationFilter implements GlobalFilter {
 
         // /auth/login, /auth/signup 으로 들어올 때 Token 체크 안하게 설정 (위조 사용자 헤더는 제거해서 전달)
         if (path.equals("/auth/login") || path.equals("/auth/signup")) {
+            return chain.filter(withUserHeaders(exchange, null));
+        }
+
+        // 통합 Swagger UI 가 읽는 서비스별 OpenAPI 문서 JSON 만 Token 체크 안함 (실제 API 경로는 그대로 JWT 필요)
+        if (isApiDocsRequest(exchange)) {
             return chain.filter(withUserHeaders(exchange, null));
         }
 
@@ -83,6 +97,15 @@ public class LocalJwtAuthenticationFilter implements GlobalFilter {
         String body = "{\"code\":\"" + code + "\",\"message\":\"" + message + "\"}";
         DataBuffer buffer = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
         return response.writeWith(Mono.just(buffer));
+    }
+
+    // StripPrefix 같은 라우트 필터가 먼저 실행되면 현재 경로가 이미 잘려 있으므로, Gateway 가 보관한 원래 요청 경로로 판단
+    private boolean isApiDocsRequest(ServerWebExchange exchange) {
+        Set<URI> originalUris = exchange.getAttributeOrDefault(GATEWAY_ORIGINAL_REQUEST_URL_ATTR, Collections.emptySet());
+        String originalPath = originalUris.isEmpty()
+                ? exchange.getRequest().getURI().getPath()
+                : originalUris.iterator().next().getPath();
+        return API_DOCS_PATH.matcher(originalPath).matches();
     }
 
     private String extractToken(ServerWebExchange exchange) {
