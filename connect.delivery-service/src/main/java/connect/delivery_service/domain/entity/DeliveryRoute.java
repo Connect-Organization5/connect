@@ -1,8 +1,9 @@
 package connect.delivery_service.domain.entity;
 
-import connect.delivery_service.domain.dto.DeliveryRouteResponse;
-import connect.delivery_service.global.BaseEntity;
+import connect.delivery_service.global.entity.BaseEntity;
 import jakarta.persistence.*;
+import connect.delivery_service.global.exception.BaseException;
+import connect.delivery_service.global.exception.ErrorCode;
 import lombok.*;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -82,7 +83,7 @@ public class DeliveryRoute extends BaseEntity {
     public void assignDeliveryUserId(UUID deliveryUserId) {
         validateDeliveryRouteStatus(DeliveryRouteStatus.WAITING);
         if (this.deliveryUserId != null){
-            throw new IllegalStateException();
+            throw new BaseException(ErrorCode.DELIVERY_USER_ALREADY_ASSIGNED);
         }
         this.deliveryUserId = deliveryUserId;
     }
@@ -100,7 +101,7 @@ public class DeliveryRoute extends BaseEntity {
 
     private void validateDeliveryRouteStatus(DeliveryRouteStatus expectedStatus) {
         if (this.deliveryRouteStatus != expectedStatus){
-            throw new IllegalStateException();
+            throw new BaseException(ErrorCode.INVALID_DELIVERY_STATUS);
         }
     }
 }

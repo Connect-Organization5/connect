@@ -1,5 +1,7 @@
 package connect.delivery_service.domain.service;
 
+import connect.delivery_service.global.exception.BaseException;
+import connect.delivery_service.global.exception.ErrorCode;
 import connect.delivery_service.client.AffiliationType;
 import connect.delivery_service.client.RoleType;
 import connect.delivery_service.domain.dto.CreateDeliveryRequest;
@@ -10,8 +12,6 @@ import connect.delivery_service.domain.entity.DeliveryRouteStatus;
 import connect.delivery_service.domain.entity.DeliveryStatus;
 import connect.delivery_service.domain.repository.DeliveryRepository;
 import connect.delivery_service.domain.repository.DeliveryRouteRepository;
-import jakarta.ws.rs.ForbiddenException;
-import jakarta.ws.rs.NotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -161,7 +161,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.getDelivery(deliveryId, otherUserId, RoleType.USER))
-                    .isInstanceOf(NotFoundException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_NOT_FOUND);
         }
 
         @Test
@@ -170,7 +171,8 @@ class DeliveryServiceTest {
             given(deliveryRepository.findById(deliveryId)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> deliveryService.getDelivery(deliveryId, ordererId, RoleType.USER))
-                    .isInstanceOf(NotFoundException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_NOT_FOUND);
         }
     }
 
@@ -214,7 +216,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.getDeliveryRoute(deliveryId, otherUserId, RoleType.USER))
-                    .isInstanceOf(NotFoundException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_NOT_FOUND);
         }
     }
 
@@ -240,7 +243,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.startHubMoving(deliveryId, otherUserId))
-                    .isInstanceOf(NotFoundException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_NOT_FOUND);
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_WAITING);
             verifyNoInteractions(deliveryRouteRepository);
         }
@@ -252,7 +256,8 @@ class DeliveryServiceTest {
             given(deliveryRouteRepository.findByDeliveryId(deliveryId)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> deliveryService.startHubMoving(deliveryId, deliveryUserId))
-                    .isInstanceOf(NotFoundException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_ROUTE_NOT_FOUND);
         }
 
         @Test
@@ -331,7 +336,8 @@ class DeliveryServiceTest {
             given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.of(delivery));
 
             assertThatThrownBy(() -> deliveryService.cancelByOrderId(orderId))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             verifyNoInteractions(deliveryRouteRepository);
         }
     }
@@ -367,7 +373,8 @@ class DeliveryServiceTest {
         @DisplayName("HUB 소속이 아니면 403, 조회도 하지 않음")
         void notHubAffiliation() {
             assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.COMPANY))
-                    .isInstanceOf(ForbiddenException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_ACCESS_DENIED);
             verifyNoInteractions(deliveryRepository, deliveryRouteRepository);
         }
 
@@ -378,7 +385,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, otherUserId, AffiliationType.HUB))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_USER_ALREADY_ASSIGNED);
             assertThat(delivery.getDeliveryUserId()).isEqualTo(deliveryUserId);
         }
 
@@ -389,7 +397,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.HUB))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
         }
     }
 
@@ -415,7 +424,8 @@ class DeliveryServiceTest {
         @DisplayName("MASTER 가 아니면 403, 조회도 하지 않음")
         void byUser() {
             assertThatThrownBy(() -> deliveryService.changeDeliveryUserId(deliveryId, RoleType.USER, UUID.randomUUID()))
-                    .isInstanceOf(ForbiddenException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_ACCESS_DENIED);
             verifyNoInteractions(deliveryRepository, deliveryRouteRepository);
         }
     }
@@ -450,7 +460,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.changeReceiver(deliveryId, deliveryUserId, RoleType.USER, "김철수"))
-                    .isInstanceOf(NotFoundException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_NOT_FOUND);
             assertThat(delivery.getReceiver()).isEqualTo("홍길동");
         }
     }
@@ -478,7 +489,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.deleteDelivery(deliveryId, ordererId, RoleType.USER))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(delivery.isDeleted()).isFalse();
             verifyNoInteractions(deliveryRouteRepository);
         }
@@ -490,7 +502,8 @@ class DeliveryServiceTest {
             givenDelivery();
 
             assertThatThrownBy(() -> deliveryService.deleteDelivery(deliveryId, otherUserId, RoleType.USER))
-                    .isInstanceOf(NotFoundException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_NOT_FOUND);
             assertThat(delivery.isDeleted()).isFalse();
         }
     }

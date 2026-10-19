@@ -11,8 +11,9 @@ import connect.delivery_service.domain.entity.DeliveryRoute;
 import connect.delivery_service.domain.entity.DeliveryStatus;
 import connect.delivery_service.domain.repository.DeliveryRepository;
 import connect.delivery_service.domain.repository.DeliveryRouteRepository;
-import jakarta.ws.rs.ForbiddenException;
-import jakarta.ws.rs.NotFoundException;
+import connect.delivery_service.global.dto.PagedResponse;
+import connect.delivery_service.global.exception.BaseException;
+import connect.delivery_service.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
@@ -52,34 +53,34 @@ public class DeliveryService {
         return DeliveryResponse.from(createdDelivery);
     }
 
-    //단건 조회
+    // 배송 단건 조회
     @Transactional(readOnly = true)
     public DeliveryResponse getDelivery(UUID deliveryId, UUID userId, RoleType role) {
-        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("배송을 찾을 수 없습니다."));
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
         if (!(delivery.isOrderedBy(userId) || delivery.isManagedBy(userId) || role == RoleType.MASTER)) {
-            throw new NotFoundException("404");
+            throw new BaseException(ErrorCode.DELIVERY_NOT_FOUND);
         }
         return DeliveryResponse.from(delivery);
     }
 
-    //목록 조회, 검색
+    // 배송 목록 조회, 검색
     @Transactional(readOnly = true)
-    public Page<DeliveryResponse> searchDeliveries(DeliverySearchCondition cond, UUID userId, AffiliationType affiliationType) {
+    public PagedResponse<DeliveryResponse> searchDeliveries(DeliverySearchCondition cond, UUID userId, AffiliationType affiliationType) {
         Page<Delivery> page = deliveryRepository.search(cond, userId, affiliationType, cond.toPageable());
-        return page.map(DeliveryResponse::from);
+        return PagedResponse.from(page.map(DeliveryResponse::from));
     }
 
-    //배송 경로 기록 조회
+    // 배송 경로 기록 조회
     @Transactional(readOnly = true)
     public DeliveryRouteResponse getDeliveryRoute(UUID deliveryId, UUID userId, RoleType role) {
         DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId)
-                .orElseThrow(() -> new NotFoundException("404"));
+                .orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
 
         boolean isRouteManager = userId.equals(deliveryRoute.getDeliveryUserId());
         if (!(isRouteManager || role == RoleType.MASTER)) {
-            Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+            Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
             if (!delivery.isOrderedBy(userId)) {
-                throw new NotFoundException("404");
+                throw new BaseException(ErrorCode.DELIVERY_NOT_FOUND);
             }
         }
         return DeliveryRouteResponse.from(deliveryRoute);
@@ -89,7 +90,7 @@ public class DeliveryService {
     public void startHubMoving(UUID deliveryId, UUID userId) {
         Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId);
         DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId)
-                .orElseThrow(() -> new NotFoundException("404"));
+                .orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
 
         delivery.startHubMoving();
         deliveryRoute.startMoving();
@@ -98,7 +99,7 @@ public class DeliveryService {
     public void arriveAtDestinationHub(UUID deliveryId, UUID userId) {
         Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId);
         DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId)
-                .orElseThrow(() -> new NotFoundException("404"));
+                .orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
 
         // 실제 이동거리, 소요시간 임시값
         deliveryRoute.complete(BigDecimal.valueOf(18), 18);
@@ -126,42 +127,42 @@ public class DeliveryService {
         });
     }
 
-    //배송 담당자 배정 (요청한 본인이 배정)
+    // 배송 담당자 배정 (요청한 본인이 배정)
     public DeliveryResponse assignDeliveryUserId(UUID deliveryId, UUID userId, AffiliationType affiliationType) {
         if (affiliationType != AffiliationType.HUB) {
-            throw new ForbiddenException("403");
+            throw new BaseException(ErrorCode.DELIVERY_ACCESS_DENIED);
         }
-        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
         delivery.assignDeliveryUserId(userId);
 
-        DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
         deliveryRoute.assignDeliveryUserId(userId);
 
         return DeliveryResponse.from(delivery);
     }
 
-    //배송 담당자 변경
+    // 배송 담당자 변경
     public DeliveryResponse changeDeliveryUserId(UUID deliveryId, RoleType role, UUID deliveryUserId) {
         if (role != RoleType.MASTER) {
-            throw new ForbiddenException("403");
+            throw new BaseException(ErrorCode.DELIVERY_ACCESS_DENIED);
         }
-        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
         delivery.changeDeliveryUserId(deliveryUserId);
 
-        DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
         deliveryRoute.changeDeliveryUserId(deliveryUserId);
 
         return DeliveryResponse.from(delivery);
     }
 
-    //배송 수령인 변경
+    // 배송 수령인 변경
     public DeliveryResponse changeReceiver(UUID deliveryId, UUID userId, RoleType role, String receiver) {
         Delivery delivery = checkForOrdererOrMaster(deliveryId, userId, role);
         delivery.changeReceiver(receiver);
         return DeliveryResponse.from(delivery);
     }
 
-
+    // 배송 삭제
     public void deleteDelivery(UUID deliveryId, UUID userId, RoleType role) {
         Delivery delivery = checkForOrdererOrMaster(deliveryId, userId, role);
         delivery.delete(userId);
@@ -172,17 +173,17 @@ public class DeliveryService {
 
 
     private Delivery checkForDeliveryStatusUpdate(UUID deliveryId, UUID userId) {
-        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
         if (!delivery.isManagedBy(userId)) {
-            throw new NotFoundException("404");
+            throw new BaseException(ErrorCode.DELIVERY_NOT_FOUND);
         }
         return delivery;
     }
 
     private Delivery checkForOrdererOrMaster(UUID deliveryId, UUID userId, RoleType role) {
-        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
         if (!(delivery.isOrderedBy(userId) || role == RoleType.MASTER)) {
-            throw new NotFoundException("404");
+            throw new BaseException(ErrorCode.DELIVERY_NOT_FOUND);
         }
         return delivery;
     }
