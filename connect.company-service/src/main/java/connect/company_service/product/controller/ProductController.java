@@ -43,27 +43,29 @@ public class ProductController {
     private final ProductService productService;
 
     @PostMapping
-    public ResponseEntity<ProductResponse> createProduct(
+    public ResponseEntity<ApiResponse<ProductResponse>> createProduct(
             @PathVariable UUID companyId,
             @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String role,
             @Valid @RequestBody ProductCreateRequest request
     ) {
         ProductResponse response = productService.createProduct(companyId, request, userId, role);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("상품이 생성되었습니다.", response));
     }
 
     @GetMapping("/{productId}")
-    public ResponseEntity<ProductResponse> getProduct(
+    public ResponseEntity<ApiResponse<ProductResponse>> getProduct(
             @PathVariable UUID companyId,
             @PathVariable UUID productId
     ) {
-        return ResponseEntity.ok(productService.getProduct(companyId, productId));
+        ProductResponse response = productService.getProduct(companyId, productId);
+        return ResponseEntity.ok(ApiResponse.ok("상품이 조회되었습니다.", response));
     }
 
     // name이 없으면 업체 전체 상품, 있으면 상품명 부분 일치 검색
     @GetMapping
-    public ResponseEntity<PagedResponse<ProductResponse>> getProducts(
+    public ResponseEntity<ApiResponse<PagedResponse<ProductResponse>>> getProducts(
             @PathVariable UUID companyId,
             @RequestParam(required = false) String name,
             @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
@@ -72,18 +74,20 @@ public class ProductController {
         if (pageable.getPageSize() > MAX_PAGE_SIZE) {
             throw new BaseException(ErrorCode.INVALID_INPUT);
         }
-        return ResponseEntity.ok(productService.getProducts(companyId, name, pageable));
+        PagedResponse<ProductResponse> response = productService.getProducts(companyId, name, pageable);
+        return ResponseEntity.ok(ApiResponse.ok("상품 목록이 조회되었습니다.", response));
     }
 
     @PutMapping("/{productId}")
-    public ResponseEntity<ProductResponse> updateProduct(
+    public ResponseEntity<ApiResponse<ProductResponse>> updateProduct(
             @PathVariable UUID companyId,
             @PathVariable UUID productId,
             @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String role,
             @Valid @RequestBody ProductUpdateRequest request
     ) {
-        return ResponseEntity.ok(productService.updateProduct(companyId, productId, request, userId, role));
+        ProductResponse response = productService.updateProduct(companyId, productId, request, userId, role);
+        return ResponseEntity.ok(ApiResponse.ok("상품이 수정되었습니다.", response));
     }
 
     // API 명세: 200 OK + 삭제 메시지 (기존 ApiResponse 사용)
