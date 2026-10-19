@@ -287,8 +287,11 @@ class UserRepositoryTest {
                 .getSingleResult();
     }
 
-    // 네이티브 쿼리는 UUID 컬럼을 byte[16] 으로 돌려주므로 UUID 로 변환해서 비교
+    // 네이티브 쿼리의 UUID 컬럼 값은 DB 에 따라 UUID(PostgreSQL) 또는 byte[16](H2) 으로 오므로 UUID 로 맞춰서 비교
     private static UUID toUuid(Object value) {
+        if (value instanceof UUID uuid) {
+            return uuid;
+        }
         ByteBuffer buffer = ByteBuffer.wrap((byte[]) value);
         return new UUID(buffer.getLong(), buffer.getLong());
     }
