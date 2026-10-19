@@ -1,5 +1,6 @@
 package connect.user_service.global.security;
 
+import connect.user_service.global.exception.ErrorCode;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -33,19 +34,18 @@ public class JwtAuthorizationFilter extends OncePerRequestFilter {
         String tokenValue = jwtUtil.getJwtFromHeader(req);
 
         if (StringUtils.hasText(tokenValue)) {
-
-            if (!jwtUtil.validateToken(tokenValue)) {
-                log.error("Token Error");
-                return;
-            }
-
-            Claims info = jwtUtil.getUserInfoFromToken(tokenValue);
-
             try {
-                setAuthentication(info.getSubject());
+                if (!jwtUtil.validateToken(tokenValue)) {
+                    throw new IllegalArgumentException("Token Error");
+                }
+
+                Claims info = jwtUtil.getUserInfoFromToken(tokenValue);
+                setAuthentication(info.get(JwtUtil.USERNAME_KEY, String.class));
             } catch (Exception e) {
-                log.error(e.getMessage());
-                return;
+                // 인증 정보 없이 다음 필터로 넘기고, 보호된 경로라면 EntryPoint 에서 INVALID_TOKEN 으로 응답
+                log.error("JWT 인증 실패: {}", e.getMessage());
+                SecurityContextHolder.clearContext();
+                req.setAttribute(CustomAuthenticationEntryPoint.ERROR_CODE_ATTRIBUTE, ErrorCode.INVALID_TOKEN);
             }
         }
 

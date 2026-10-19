@@ -2,6 +2,7 @@ package connect.user_service.global.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
+import connect.user_service.domain.user.entity.UserRole;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -43,9 +44,9 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
     @Override
     protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain, Authentication authResult) {
         String username = ((UserDetailsImpl) authResult.getPrincipal()).getUsername();
-        String password = ((UserDetailsImpl) authResult.getPrincipal()).getUser().getPassword();
+        UserRole role = ((UserDetailsImpl) authResult.getPrincipal()).getUser().getRole();
 
-        String token = jwtUtil.createToken(username, password);
+        String token = jwtUtil.createToken(username, role);
         response.addHeader(JwtUtil.AUTHORIZATION_HEADER, token);
     }
 

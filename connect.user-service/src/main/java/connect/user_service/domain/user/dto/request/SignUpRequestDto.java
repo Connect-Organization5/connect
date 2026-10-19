@@ -7,6 +7,8 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.UUID;
+
 @Getter
 @Setter
 public class SignUpRequestDto {
@@ -23,10 +25,13 @@ public class SignUpRequestDto {
     @Email
     private String email;
 
+    @NotBlank(message = "소속 유형을 입력하셔야 합니다.")
     private String affiliationType;
 
+    @NotNull(message = "소속 ID를 입력하셔야 합니다.")
     private Long affiliationId;
 
+    @NotBlank(message = "Slack ID를 입력하셔야 합니다.")
     private String slackId;
 
     private boolean MASTER = false;

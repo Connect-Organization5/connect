@@ -28,16 +28,16 @@ public class User {
     @Enumerated(value = EnumType.STRING)
     private UserRole role;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String affiliationType;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private Long affiliationId;
 
     @Column(nullable = false, unique = true)
     private String slackId;
 
-    public User(String username, String password, String email, UserRole role,  String affiliationType, Long affiliationId, String slackId) {
+    public User(String username, String password, String email, UserRole role, String affiliationType, Long affiliationId, String slackId) {
         this.username = username;
         this.password = password;
         this.email = email;

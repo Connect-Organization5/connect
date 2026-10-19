@@ -2,6 +2,7 @@ package connect.user_service.global.security;
 
 import connect.user_service.domain.user.entity.UserRole;
 import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,7 +12,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.security.Key;
-import java.util.Base64;
 import java.util.Date;
 
 @Slf4j(topic = "JwtUtil")
@@ -23,8 +23,10 @@ public class JwtUtil {
     public static final String AUTHORIZATION_KEY = "auth";
     // Token 식별자
     public static final String BEARER_PREFIX = "Bearer ";
+    // 사용자 이름 claim KEY (AuthService 에서 발급하는 토큰과 동일)
+    public static final String USERNAME_KEY = "username";
 
-    @Value("${jwt.secret.key}") // Base64 Encode 한 SecretKey
+    @Value("${service.jwt.secret-key}") // AuthService, Gateway 와 같은 Base64URL Encode 한 SecretKey
     private String secretKey;
 
     @Value("${service.jwt.access-expiration}")
@@ -36,18 +38,18 @@ public class JwtUtil {
 
     @PostConstruct
     public void init() {
-        byte[] bytes = Base64.getDecoder().decode(secretKey);
+        byte[] bytes = Decoders.BASE64URL.decode(secretKey);
         key = Keys.hmacShaKeyFor(bytes);
     }
 
     // 토큰 생성
-    public String createToken(String username, String password) {
+    public String createToken(String username, UserRole role) {
         Date date = new Date();
 
         return BEARER_PREFIX +
                 Jwts.builder()
                         .setSubject(username) // 사용자 식별자값(ID)
-                        .claim(AUTHORIZATION_KEY, password) // 사용자 권한
+                        .claim(AUTHORIZATION_KEY, role.name()) // 사용자 권한
                         .setExpiration(new Date(date.getTime() + accessExpiration)) // 만료 시간
                         .setIssuedAt(date) // 발급일
                         .signWith(key, signatureAlgorithm) // 암호화 알고리즘

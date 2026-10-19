@@ -1,5 +1,10 @@
 package connect.user_service.global.config;
 
+import connect.user_service.global.security.CustomAuthenticationEntryPoint;
+import connect.user_service.global.security.JwtAuthorizationFilter;
+import connect.user_service.global.security.JwtUtil;
+import connect.user_service.global.security.UserDetailsServiceImpl;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -7,10 +12,17 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
+@RequiredArgsConstructor
 public class AuthConfig {
+
+    private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
+    private final JwtUtil jwtUtil;
+    private final UserDetailsServiceImpl userDetailsService;
+
     // SecurityFilterChain 빈을 정의합니다. 이 메서드는 Spring Security 의 보안 필터 체인을 구성합니다.
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -36,6 +48,16 @@ public class AuthConfig {
         http
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                );
+
+        // 요청 헤더의 JWT 를 검증하고 SecurityContext 에 인증 정보를 저장합니다.
+        http
+                .addFilterBefore(new JwtAuthorizationFilter(jwtUtil, userDetailsService), UsernamePasswordAuthenticationFilter.class);
+
+        // 인증 실패(401) 시 ErrorResponse 형식으로 응답합니다.
+        http
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint(customAuthenticationEntryPoint)
                 );
 
         // 설정된 보안 필터 체인을 반환합니다.
