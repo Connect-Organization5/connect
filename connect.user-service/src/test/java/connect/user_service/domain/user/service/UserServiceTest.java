@@ -791,4 +791,38 @@ class UserServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_NOT_FOUND);
     }
+
+    // ===== 다른 서비스에 회원 정보 전달 =====
+
+    @Test
+    @DisplayName("회원 정보 전달 성공 - userId 로 조회한 회원 정보를 반환")
+    void sendUser_success() {
+        // given
+        User user = userOf(2, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
+        given(userRepository.findById(idOf(2))).willReturn(Optional.of(user));
+
+        // when
+        UpdateUserResponse response = userService.sendUser(idOf(2));
+
+        // then
+        assertThat(response.id()).isEqualTo(idOf(2));
+        assertThat(response.username()).isEqualTo("user2");
+        assertThat(response.email()).isEqualTo("user2@test.com");
+        assertThat(response.affiliationType()).isEqualTo(AffiliationType.COMPANY);
+        assertThat(response.affiliationId()).isEqualTo(AFFILIATION_ID);
+        assertThat(response.slackId()).isEqualTo("slack-2");
+    }
+
+    @Test
+    @DisplayName("회원 정보 전달 실패 - 없거나 삭제된 회원이면 USER_NOT_FOUND")
+    void sendUser_notFound() {
+        // given
+        given(userRepository.findById(idOf(999))).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> userService.sendUser(idOf(999)))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_NOT_FOUND);
+    }
 }

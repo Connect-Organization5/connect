@@ -207,6 +207,14 @@ public class UserService {
     }
 
 
+    @Transactional(readOnly = true)
+    public UpdateUserResponse sendUser(UUID userId) {
+        // 대상 회원 조회
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
+
+        return UpdateUserResponse.from(user);
+    }
 }
 
 
