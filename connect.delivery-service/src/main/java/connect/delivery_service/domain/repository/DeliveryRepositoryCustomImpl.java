@@ -52,11 +52,8 @@ public class DeliveryRepositoryCustomImpl implements DeliveryRepositoryCustom {
                 .from(delivery)
                 .where(conditions);
 
-        // 마지막 페이지 등 count 가 필요 없는 경우엔 count 쿼리를 생략해준다
         return PageableExecutionUtils.getPage(content, pageable, countQuery::fetchOne);
     }
-
-    // ===== 검색 조건 (null 을 반환하면 where 에서 무시됨) =====
 
     private BooleanExpression statusEq(DeliveryStatus status) {
         return status != null ? delivery.deliveryStatus.eq(status) : null;
@@ -80,23 +77,19 @@ public class DeliveryRepositoryCustomImpl implements DeliveryRepositoryCustom {
                 : null;
     }
 
-    // ===== 권한 조건: 허브 소속(배송담당자)은 본인이 담당한 배송만 =====
-
     private BooleanExpression onlyMyDeliveries(UUID userId, AffiliationType affiliationType) {
         if (affiliationType != AffiliationType.HUB) {
-            return null; // MASTER, 업체 소속은 전체 조회 (발제 기준)
+            return null;
         }
 
-        return delivery.deliveryUserId.eq(userId)              // 업체 배송 담당
-                .or(delivery.id.in(                             // 허브 간 이동 담당
+        return delivery.deliveryUserId.eq(userId)
+                .or(delivery.id.in(
                         JPAExpressions
                                 .select(deliveryRoute.deliveryId)
                                 .from(deliveryRoute)
                                 .where(deliveryRoute.deliveryUserId.eq(userId))
                 ));
     }
-
-    // ===== 정렬 (허용 필드는 DeliverySearchCondition 에서 이미 걸러짐) =====
 
     private OrderSpecifier<?>[] toOrderSpecifiers(Sort sort) {
         List<OrderSpecifier<?>> orders = new ArrayList<>();
@@ -106,7 +99,7 @@ public class DeliveryRepositoryCustomImpl implements DeliveryRepositoryCustom {
             switch (o.getProperty()) {
                 case "createdAt" -> orders.add(new OrderSpecifier<>(direction, delivery.createdAt));
                 case "updatedAt" -> orders.add(new OrderSpecifier<>(direction, delivery.updatedAt));
-                default -> { /* 허용되지 않은 필드는 무시 */ }
+                default -> { }
             }
         }
 

@@ -10,7 +10,6 @@ import java.util.UUID;
 public class CreateDeliveryRequest {
     private UUID orderId;
     private UUID ordererId;
-    private UUID deliveryUserId;
     private UUID departureHubId;
     private UUID arrivalHubId;
     private String deliveryAddress;

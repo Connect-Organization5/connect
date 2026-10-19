@@ -39,7 +39,7 @@ public class DeliveryService {
             return DeliveryResponse.from(delivery.get());
         }
 
-        Delivery createdDelivery = Delivery.createDelivery(request.getOrderId(), request.getOrdererId(), request.getDeliveryUserId(), request.getDepartureHubId(), request.getArrivalHubId(), request.getReceiver(), request.getDeliveryAddress());
+        Delivery createdDelivery = Delivery.createDelivery(request.getOrderId(), request.getOrdererId(), request.getDepartureHubId(), request.getArrivalHubId(), request.getReceiver(), request.getDeliveryAddress());
         deliveryRepository.save(createdDelivery);
 
         // hubClient.getRoute(departureHubId, arrivalHubId)

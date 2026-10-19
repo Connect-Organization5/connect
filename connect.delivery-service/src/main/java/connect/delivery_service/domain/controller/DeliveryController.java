@@ -102,7 +102,7 @@ public class DeliveryController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/{deliveryId}/route")
+    @GetMapping("/routes/{deliveryId}/")
     public ResponseEntity<DeliveryRouteResponse> getDeliveryRoute(
             @PathVariable UUID deliveryId,
             @RequestHeader("X-User-Id") UUID userId,

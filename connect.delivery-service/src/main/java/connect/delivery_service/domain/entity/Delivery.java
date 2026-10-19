@@ -26,7 +26,6 @@ public class Delivery extends BaseEntity {
     @Column(name = "orderer_id", nullable = false, updatable = false)
     private UUID ordererId;
 
-    @Column(nullable = false)
     private UUID deliveryUserId;
 
     @Column(nullable = false)
@@ -45,12 +44,12 @@ public class Delivery extends BaseEntity {
     @Column(nullable = false)
     private String receiver;
 
-    public static Delivery createDelivery(UUID orderId, UUID ordererId, UUID deliveryUserId, UUID departureHubId, UUID arrivalHubId,
+    public static Delivery createDelivery(UUID orderId, UUID ordererId, UUID departureHubId, UUID arrivalHubId,
                                   String receiver, String deliveryAddress) {
         return Delivery.builder()
                 .orderId(orderId)
                 .ordererId(ordererId)
-                .deliveryUserId(deliveryUserId)
+                .deliveryUserId(null)
                 .deliveryStatus(DeliveryStatus.HUB_WAITING)
                 .departureHubId(departureHubId)
                 .arrivalHubId(arrivalHubId)
@@ -85,6 +84,14 @@ public class Delivery extends BaseEntity {
         this.deliveryStatus = DeliveryStatus.CANCELED;
     }
 
+    // 담당자 배정
+    public void assignDeliveryUserId(UUID deliveryUserId) {
+        if (this.deliveryUserId != null){
+            throw new IllegalStateException();
+        }
+        this.deliveryUserId = deliveryUserId;
+    }
+
     // 담당자 변경
     public void changeDeliveryUserId(UUID deliveryUserId) {
         validateDeliveryStatus(DeliveryStatus.HUB_WAITING);
@@ -108,7 +115,7 @@ public class Delivery extends BaseEntity {
     }
 
 
-    // 삭제: 끝난 배송(DELIVERED, CANCELED)만 가능
+    // 삭제
     public void delete(UUID userId) {
         if (this.deliveryStatus != DeliveryStatus.DELIVERED && this.deliveryStatus != DeliveryStatus.CANCELED) {
             throw new IllegalStateException();
