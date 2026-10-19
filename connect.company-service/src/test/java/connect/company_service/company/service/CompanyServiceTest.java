@@ -3,6 +3,7 @@ package connect.company_service.company.service;
 import connect.company_service.client.hub.HubClient;
 import connect.company_service.client.hub.HubValidator;
 import connect.company_service.client.hub.dto.StockDeleteRequest;
+import connect.company_service.company.dto.request.AssignManagerRequest;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -51,8 +52,6 @@ class CompanyServiceTest {
 
     private static final String ROLE_MASTER = "MASTER";
     private static final String ROLE_USER = "USER";
-    private static final String AFFILIATION_COMPANY = "COMPANY";
-    private static final String AFFILIATION_HUB = "HUB";
 
     @Mock
     private CompanyRepository companyRepository;
@@ -81,6 +80,13 @@ class CompanyServiceTest {
         return company;
     }
 
+    // MASTER가 생성해 관리자가 아직 지정되지 않은 업체
+    private Company createUnassignedCompany(UUID id, String name) {
+        Company company = Company.create(null, hubId, name, "서울시 강남구");
+        ReflectionTestUtils.setField(company, "id", id);
+        return company;
+    }
+
     private void assertBaseException(Throwable thrown, ErrorCode errorCode) {
         assertThat(thrown).isInstanceOf(BaseException.class);
         assertThat(((BaseException) thrown).getErrorCode()).isEqualTo(errorCode);
@@ -93,15 +99,14 @@ class CompanyServiceTest {
         private final CreateCompanyRequest request = new CreateCompanyRequest(hubId, "스파르타 업체", "서울시 강남구");
 
         @Test
-        @DisplayName("MASTER는 소속과 관계없이 업체를 생성할 수 있다")
+        @DisplayName("MASTER가 생성하면 관리자가 지정되지 않은(userId null) 업체가 된다")
         void createByMaster() {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
             given(companyRepository.save(any(Company.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-            CompanyResponse response = companyService.createCompany(
-                    userId, ROLE_MASTER, AFFILIATION_HUB, UUID.randomUUID(), request);
+            CompanyResponse response = companyService.createCompany(userId, ROLE_MASTER, request);
 
-            assertThat(response.userId()).isEqualTo(userId);
+            assertThat(response.userId()).isNull();
             assertThat(response.hubId()).isEqualTo(hubId);
             assertThat(response.name()).isEqualTo(request.name());
             assertThat(response.address()).isEqualTo(request.address());
@@ -109,38 +114,16 @@ class CompanyServiceTest {
         }
 
         @Test
-        @DisplayName("소속 업체가 없는 업체 소속 사용자는 업체를 생성할 수 있다")
-        void createByCompanyUserWithoutAffiliation() {
+        @DisplayName("USER가 생성하면 본인이 업체 관리자(userId)가 된다")
+        void createByUser() {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
             given(companyRepository.save(any(Company.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-            CompanyResponse response = companyService.createCompany(
-                    userId, ROLE_USER, AFFILIATION_COMPANY, null, request);
+            CompanyResponse response = companyService.createCompany(userId, ROLE_USER, request);
 
+            assertThat(response.userId()).isEqualTo(userId);
             assertThat(response.name()).isEqualTo(request.name());
             verify(companyRepository).save(any(Company.class));
-        }
-
-        @Test
-        @DisplayName("이미 소속 업체가 있는 사용자는 업체를 생성할 수 없다")
-        void createByCompanyUserWithAffiliation() {
-            Throwable thrown = catchThrowable(() -> companyService.createCompany(
-                    userId, ROLE_USER, AFFILIATION_COMPANY, UUID.randomUUID(), request));
-
-            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
-            verifyNoInteractions(companyRepository);
-        }
-
-        @ParameterizedTest
-        @NullAndEmptySource
-        @ValueSource(strings = {AFFILIATION_HUB})
-        @DisplayName("업체 소속이 아닌 사용자는 업체를 생성할 수 없다")
-        void createByNonCompanyUser(String affiliationType) {
-            Throwable thrown = catchThrowable(() -> companyService.createCompany(
-                    userId, ROLE_USER, affiliationType, null, request));
-
-            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
-            verifyNoInteractions(companyRepository);
         }
 
         @Test
@@ -149,7 +132,7 @@ class CompanyServiceTest {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(true);
 
             Throwable thrown = catchThrowable(() -> companyService.createCompany(
-                    userId, ROLE_MASTER, null, null, request));
+                    userId, ROLE_MASTER, request));
 
             assertBaseException(thrown, ErrorCode.COMPANY_ALREADY_EXISTS);
             verify(companyRepository, never()).save(any(Company.class));
@@ -161,7 +144,7 @@ class CompanyServiceTest {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
             given(companyRepository.save(any(Company.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-            companyService.createCompany(userId, ROLE_MASTER, null, null, request);
+            companyService.createCompany(userId, ROLE_MASTER, request);
 
             verify(hubValidator).validateHubExists(hubId);
             verify(companyRepository).save(any(Company.class));
@@ -174,7 +157,7 @@ class CompanyServiceTest {
             willThrow(new BaseException(ErrorCode.HUB_NOT_FOUND)).given(hubValidator).validateHubExists(hubId);
 
             Throwable thrown = catchThrowable(() -> companyService.createCompany(
-                    userId, ROLE_MASTER, null, null, request));
+                    userId, ROLE_MASTER, request));
 
             assertBaseException(thrown, ErrorCode.HUB_NOT_FOUND);
             verify(companyRepository, never()).save(any(Company.class));
@@ -277,7 +260,7 @@ class CompanyServiceTest {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
 
             CompanyResponse response = companyService.updateCompany(
-                    companyId, ROLE_MASTER, null, null, request);
+                    companyId, UUID.randomUUID(), ROLE_MASTER, request);
 
             assertThat(company.getHubId()).isEqualTo(newHubId);
             assertThat(company.getName()).isEqualTo("새 업체명");
@@ -286,26 +269,38 @@ class CompanyServiceTest {
         }
 
         @Test
-        @DisplayName("해당 업체 소속 사용자는 업체를 수정할 수 있다")
-        void updateByCompanyMember() {
+        @DisplayName("업체를 생성한 사용자는 업체를 수정할 수 있다")
+        void updateByOwner() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
 
-            companyService.updateCompany(companyId, ROLE_USER, AFFILIATION_COMPANY, companyId, request);
+            companyService.updateCompany(companyId, userId, ROLE_USER, request);
 
             assertThat(company.getName()).isEqualTo("새 업체명");
         }
 
-        @ParameterizedTest
-        @ValueSource(strings = {AFFILIATION_COMPANY, AFFILIATION_HUB})
-        @DisplayName("해당 업체 소속이 아니면 업체를 수정할 수 없다")
-        void updateByNonMember(String affiliationType) {
+        @Test
+        @DisplayName("업체를 생성한 사용자가 아니면 업체를 수정할 수 없다")
+        void updateByNonOwner() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
 
             Throwable thrown = catchThrowable(() -> companyService.updateCompany(
-                    companyId, ROLE_USER, affiliationType, UUID.randomUUID(), request));
+                    companyId, UUID.randomUUID(), ROLE_USER, request));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
+            assertThat(company.getName()).isEqualTo("스파르타 업체");
+        }
+
+        @Test
+        @DisplayName("관리자가 지정되지 않은 업체는 USER가 수정할 수 없다")
+        void updateUnassignedByUser() {
+            Company company = createUnassignedCompany(companyId, "스파르타 업체");
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+            Throwable thrown = catchThrowable(() -> companyService.updateCompany(
+                    companyId, userId, ROLE_USER, request));
 
             assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
             assertThat(company.getName()).isEqualTo("스파르타 업체");
@@ -317,7 +312,7 @@ class CompanyServiceTest {
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.empty());
 
             Throwable thrown = catchThrowable(() -> companyService.updateCompany(
-                    companyId, ROLE_USER, AFFILIATION_HUB, null, request));
+                    companyId, UUID.randomUUID(), ROLE_USER, request));
 
             assertBaseException(thrown, ErrorCode.COMPANY_NOT_FOUND);
         }
@@ -330,7 +325,7 @@ class CompanyServiceTest {
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(true);
 
             Throwable thrown = catchThrowable(() -> companyService.updateCompany(
-                    companyId, ROLE_MASTER, null, null, request));
+                    companyId, UUID.randomUUID(), ROLE_MASTER, request));
 
             assertBaseException(thrown, ErrorCode.COMPANY_ALREADY_EXISTS);
             assertThat(company.getName()).isEqualTo("스파르타 업체");
@@ -343,7 +338,7 @@ class CompanyServiceTest {
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
             UpdateCompanyRequest sameNameRequest = new UpdateCompanyRequest(newHubId, "스파르타 업체", "부산시 해운대구");
 
-            companyService.updateCompany(companyId, ROLE_MASTER, null, null, sameNameRequest);
+            companyService.updateCompany(companyId, UUID.randomUUID(), ROLE_MASTER, sameNameRequest);
 
             verify(companyRepository, never()).existsByNameAndDeletedAtIsNull(anyString());
             assertThat(company.getAddress()).isEqualTo("부산시 해운대구");
@@ -356,7 +351,7 @@ class CompanyServiceTest {
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
             given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
 
-            companyService.updateCompany(companyId, ROLE_USER, AFFILIATION_COMPANY, companyId, request);
+            companyService.updateCompany(companyId, userId, ROLE_USER, request);
 
             verify(hubValidator).validateHubExists(newHubId);
             assertThat(company.getHubId()).isEqualTo(newHubId);
@@ -371,7 +366,7 @@ class CompanyServiceTest {
             willThrow(new BaseException(ErrorCode.HUB_NOT_FOUND)).given(hubValidator).validateHubExists(newHubId);
 
             Throwable thrown = catchThrowable(() -> companyService.updateCompany(
-                    companyId, ROLE_USER, AFFILIATION_COMPANY, companyId, request));
+                    companyId, userId, ROLE_USER, request));
 
             assertBaseException(thrown, ErrorCode.HUB_NOT_FOUND);
             // 수정 전에 중단되므로 기존 값이 유지된다
@@ -390,32 +385,44 @@ class CompanyServiceTest {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
 
-            companyService.deleteCompany(companyId, userId, ROLE_MASTER, null, null);
+            companyService.deleteCompany(companyId, userId, ROLE_MASTER);
 
             assertThat(company.getDeletedAt()).isNotNull();
             assertThat(company.getDeletedBy()).isEqualTo(userId);
         }
 
         @Test
-        @DisplayName("해당 업체 소속 사용자는 업체를 삭제할 수 있다")
-        void deleteByCompanyMember() {
+        @DisplayName("업체를 생성한 사용자는 업체를 삭제할 수 있다")
+        void deleteByOwner() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
 
-            companyService.deleteCompany(companyId, userId, ROLE_USER, AFFILIATION_COMPANY, companyId);
+            companyService.deleteCompany(companyId, userId, ROLE_USER);
 
             assertThat(company.getDeletedAt()).isNotNull();
             assertThat(company.getDeletedBy()).isEqualTo(userId);
         }
 
         @Test
-        @DisplayName("다른 업체 소속 사용자는 업체를 삭제할 수 없다")
-        void deleteByOtherCompanyMember() {
+        @DisplayName("업체를 생성한 사용자가 아니면 업체를 삭제할 수 없다")
+        void deleteByNonOwner() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
 
             Throwable thrown = catchThrowable(() -> companyService.deleteCompany(
-                    companyId, userId, ROLE_USER, AFFILIATION_COMPANY, UUID.randomUUID()));
+                    companyId, UUID.randomUUID(), ROLE_USER));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
+            assertThat(company.getDeletedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("관리자가 지정되지 않은 업체는 USER가 삭제할 수 없다")
+        void deleteUnassignedByUser() {
+            Company company = createUnassignedCompany(companyId, "스파르타 업체");
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+            Throwable thrown = catchThrowable(() -> companyService.deleteCompany(companyId, userId, ROLE_USER));
 
             assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
             assertThat(company.getDeletedAt()).isNull();
@@ -427,7 +434,7 @@ class CompanyServiceTest {
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.empty());
 
             Throwable thrown = catchThrowable(() -> companyService.deleteCompany(
-                    companyId, userId, ROLE_MASTER, null, null));
+                    companyId, userId, ROLE_MASTER));
 
             assertBaseException(thrown, ErrorCode.COMPANY_NOT_FOUND);
         }
@@ -440,7 +447,7 @@ class CompanyServiceTest {
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
             given(productService.deleteProductsByCompany(companyId, userId)).willReturn(productIds);
 
-            companyService.deleteCompany(companyId, userId, ROLE_USER, AFFILIATION_COMPANY, companyId);
+            companyService.deleteCompany(companyId, userId, ROLE_USER);
 
             verify(productService).deleteProductsByCompany(companyId, userId);
             verify(hubClient).deleteStocks(eq(userId), eq(new StockDeleteRequest(productIds)));
@@ -455,7 +462,7 @@ class CompanyServiceTest {
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
             given(productService.deleteProductsByCompany(companyId, userId)).willReturn(List.of());
 
-            companyService.deleteCompany(companyId, userId, ROLE_USER, AFFILIATION_COMPANY, companyId);
+            companyService.deleteCompany(companyId, userId, ROLE_USER);
 
             verify(productService).deleteProductsByCompany(companyId, userId);
             verify(hubClient, never()).deleteStocks(any(), any());
@@ -475,9 +482,60 @@ class CompanyServiceTest {
 
             // 예외를 삼키지 않고 전파해야 @Transactional이 상품·업체 soft delete를 롤백한다
             Throwable thrown = catchThrowable(() -> companyService.deleteCompany(
-                    companyId, userId, ROLE_USER, AFFILIATION_COMPANY, companyId));
+                    companyId, userId, ROLE_USER));
 
             assertThat(thrown).isSameAs(hubError);
+        }
+    }
+
+    @Nested
+    @DisplayName("업체 관리자 지정")
+    class AssignManager {
+
+        private final UUID managerId = UUID.randomUUID();
+        private final AssignManagerRequest request = new AssignManagerRequest(managerId);
+
+        @Test
+        @DisplayName("관리자가 지정되지 않은 업체에 MASTER가 요청하면 관리자가 지정된다")
+        void assignByMaster() {
+            Company company = createUnassignedCompany(companyId, "스파르타 업체");
+            given(companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+            CompanyResponse response = companyService.assignManager(companyId, ROLE_MASTER, request);
+
+            assertThat(company.getUserId()).isEqualTo(managerId);
+            assertThat(response.userId()).isEqualTo(managerId);
+        }
+
+        @Test
+        @DisplayName("MASTER가 아니면 COMPANY_ACCESS_DENIED 예외가 발생하고 업체를 조회하지 않는다")
+        void assignByUser() {
+            Throwable thrown = catchThrowable(() -> companyService.assignManager(companyId, ROLE_USER, request));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
+            verifyNoInteractions(companyRepository);
+        }
+
+        @Test
+        @DisplayName("이미 관리자가 있으면 COMPANY_MANAGER_ALREADY_ASSIGNED 예외가 발생하고 관리자는 그대로다")
+        void assignAlreadyAssigned() {
+            Company company = createCompany(companyId, "스파르타 업체");
+            given(companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+            Throwable thrown = catchThrowable(() -> companyService.assignManager(companyId, ROLE_MASTER, request));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_MANAGER_ALREADY_ASSIGNED);
+            assertThat(company.getUserId()).isEqualTo(userId);
+        }
+
+        @Test
+        @DisplayName("업체가 없으면 COMPANY_NOT_FOUND 예외가 발생한다")
+        void assignNotFound() {
+            given(companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.empty());
+
+            Throwable thrown = catchThrowable(() -> companyService.assignManager(companyId, ROLE_MASTER, request));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_NOT_FOUND);
         }
     }
 }
