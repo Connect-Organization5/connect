@@ -11,7 +11,6 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Getter
 @MappedSuperclass
@@ -24,19 +23,19 @@ public abstract class TimeStamp {
 
     @CreatedBy
     @Column(updatable = false)
-    private UUID createdBy;
+    private Long createdBy;
 
     @LastModifiedDate
     private LocalDateTime updatedAt;
 
     @LastModifiedBy
-    private UUID  updatedBy;
+    private Long  updatedBy;
 
     private LocalDateTime deletedAt;
 
-    private UUID  deletedBy;
+    private Long  deletedBy;
 
-    protected void softDelete(UUID deletedBy) {
+    protected void softDelete(Long deletedBy) {
         this.deletedAt = LocalDateTime.now();
         this.deletedBy = deletedBy;
     }

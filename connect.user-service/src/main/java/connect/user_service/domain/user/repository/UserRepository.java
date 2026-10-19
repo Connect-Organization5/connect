@@ -11,4 +11,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByUsername(String username);
     boolean existsByEmail(String email);
     boolean existsBySlackId(String slackId);
+    // 회원 정보 수정 시 자기 자신을 제외한 중복 확인
+    boolean existsByEmailAndIdNot(String email, Long id);
+    boolean existsBySlackIdAndIdNot(String slackId, Long id);
 }

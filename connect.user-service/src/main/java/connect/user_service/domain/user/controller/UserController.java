@@ -1,24 +1,17 @@
 package connect.user_service.domain.user.controller;
 
-import connect.user_service.domain.user.dto.UpdateUser;
 import connect.user_service.domain.user.dto.UserInfoDto;
+import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
 import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.security.UserDetailsImpl;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.stereotype.Controller;
-import org.springframework.validation.BindingResult;
-import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/users")
@@ -40,15 +33,17 @@ public class UserController {
     }
 
     @PutMapping("/{userId}")
-    public ResponseEntity<?> updateUser(@RequestBody UpdateUser updateUser) {
-
-        return null;
+    public ResponseEntity<UserResponse> updateUser(@PathVariable Long userId,
+                                                   @Valid @RequestBody UpdateUserRequestDto requestDto,
+                                                   @AuthenticationPrincipal UserDetailsImpl userDetails) {
+        UserResponse response = userService.updateUser(userId, requestDto, userDetails.getUser());
+        return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
     @DeleteMapping("/{userId}")
-    public ResponseEntity<?> deleteUser(@PathVariable UUID userId) {
+    public ResponseEntity<?> deleteUser(@PathVariable Long userId) {
 
-        return ResponseEntity.status(HttpStatus.OK).build();
+        return null;
     }
 
     // 회원 관련 정보 받기

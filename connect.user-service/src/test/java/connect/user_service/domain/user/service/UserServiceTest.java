@@ -2,6 +2,7 @@ package connect.user_service.domain.user.service;
 
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
+import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
 import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -202,5 +203,178 @@ class UserServiceTest {
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_NOT_FOUND);
+    }
+
+    // ===== 회원 정보 수정 =====
+
+    // affiliationId 는 1000 처럼 Long 캐시(-128~127) 밖의 값을 사용해서 == 비교 버그를 잡음
+    private static final long AFFILIATION_ID = 1000L;
+
+    private User userOf(Long id, UserRole role, String affiliationType, Long affiliationId) {
+        User user = new User("user" + id, "encodedPw", "user" + id + "@test.com", role, affiliationType, affiliationId, "slack-" + id);
+        user.setId(id);
+        return user;
+    }
+
+    private UpdateUserRequestDto updateRequest() {
+        UpdateUserRequestDto request = new UpdateUserRequestDto();
+        request.setEmail("new@test.com");
+        request.setPassword("newPassword1!");
+        request.setSlackId("new-slack");
+        request.setRole(UserRole.MASTER);
+        request.setAffiliationType("HUB");
+        request.setAffiliationId(2000L);
+        return request;
+    }
+
+    @Test
+    @DisplayName("회원 수정 성공 - MASTER 이고 소속이 같으면 6개 필드 모두 수정")
+    void updateUser_success() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", Long.valueOf(AFFILIATION_ID));
+        User target = userOf(2L, UserRole.USER, "COMPANY", Long.valueOf(AFFILIATION_ID));
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+        given(userRepository.existsByEmailAndIdNot("new@test.com", 2L)).willReturn(false);
+        given(userRepository.existsBySlackIdAndIdNot("new-slack", 2L)).willReturn(false);
+        given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
+
+        // when
+        UserResponse response = userService.updateUser(2L, updateRequest(), requester);
+
+        // then
+        assertThat(target.getEmail()).isEqualTo("new@test.com");
+        assertThat(target.getPassword()).isEqualTo("newEncodedPw");
+        assertThat(target.getSlackId()).isEqualTo("new-slack");
+        assertThat(target.getRole()).isEqualTo(UserRole.MASTER);
+        assertThat(target.getAffiliationType()).isEqualTo("HUB");
+        assertThat(target.getAffiliationId()).isEqualTo(2000L);
+        assertThat(target.getUsername()).isEqualTo("user2");
+        assertThat(response.id()).isEqualTo(2L);
+        assertThat(response.email()).isEqualTo("new@test.com");
+    }
+
+    @Test
+    @DisplayName("회원 수정 성공 - MASTER 는 본인 정보 수정 가능")
+    void updateUser_masterSelf() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User self = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(1L)).willReturn(Optional.of(self));
+        given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
+
+        // when
+        userService.updateUser(1L, updateRequest(), requester);
+
+        // then
+        assertThat(self.getEmail()).isEqualTo("new@test.com");
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - USER 권한이면 USER_ACCESS_DENIED, 대상 회원은 조회하지 않음")
+    void updateUser_userRole() {
+        // given
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(2L, updateRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - USER 는 본인 정보도 수정 불가")
+    void updateUser_userSelf() {
+        // given
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(1L, updateRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - 소속 유형이 다르면 USER_ACCESS_DENIED")
+    void updateUser_differentAffiliationType() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "HUB", AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(2L, updateRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        assertThat(target.getEmail()).isEqualTo("user2@test.com");
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - 소속 ID 가 다르면 USER_ACCESS_DENIED")
+    void updateUser_differentAffiliationId() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "COMPANY", AFFILIATION_ID + 1);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(2L, updateRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        assertThat(target.getEmail()).isEqualTo("user2@test.com");
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - 대상 회원이 없으면 USER_NOT_FOUND")
+    void updateUser_notFound() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(999L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(999L, updateRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - 다른 회원과 email 중복이면 EMAIL_ALREADY_EXISTS")
+    void updateUser_duplicateEmail() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+        given(userRepository.existsByEmailAndIdNot("new@test.com", 2L)).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(2L, updateRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.EMAIL_ALREADY_EXISTS);
+        then(passwordEncoder).should(never()).encode(any());
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - 다른 회원과 slackId 중복이면 SLACK_ID_ALREADY_EXISTS")
+    void updateUser_duplicateSlackId() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+        given(userRepository.existsByEmailAndIdNot("new@test.com", 2L)).willReturn(false);
+        given(userRepository.existsBySlackIdAndIdNot("new-slack", 2L)).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(2L, updateRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.SLACK_ID_ALREADY_EXISTS);
+        then(passwordEncoder).should(never()).encode(any());
     }
 }

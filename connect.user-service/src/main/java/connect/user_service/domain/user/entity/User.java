@@ -1,5 +1,6 @@
 package connect.user_service.domain.user.entity;
 
+import connect.user_service.global.entity.TimeStamp;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -10,7 +11,7 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @Table(name = "users")
-public class User {
+public class User extends TimeStamp {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -45,5 +46,16 @@ public class User {
         this.affiliationType = affiliationType;
         this.affiliationId = affiliationId;
         this.slackId = slackId;
+    }
+
+    // 회원 정보 수정 (username 은 변경 불가, updatedAt/By 는 JPA Auditing 이 기록)
+    public void update(String email, String encodedPassword, String slackId,
+                       UserRole role, String affiliationType, Long affiliationId) {
+        this.email = email;
+        this.password = encodedPassword;
+        this.slackId = slackId;
+        this.role = role;
+        this.affiliationType = affiliationType;
+        this.affiliationId = affiliationId;
     }
 }

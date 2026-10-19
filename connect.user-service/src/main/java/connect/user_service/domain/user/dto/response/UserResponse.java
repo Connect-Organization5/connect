@@ -2,8 +2,6 @@ package connect.user_service.domain.user.dto.response;
 
 import connect.user_service.domain.user.entity.User;
 
-
-
 public record UserResponse (
     Long id,
     String username,
