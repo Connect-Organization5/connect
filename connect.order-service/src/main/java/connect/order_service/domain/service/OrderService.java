@@ -14,7 +14,8 @@ import connect.order_service.domain.repository.OrderRepository;
 import connect.order_service.global.dto.PagedResponse;
 import connect.order_service.global.exception.BaseException;
 import connect.order_service.global.exception.ErrorCode;
-import connect.order_service.global.slack.SlackWebhookSender;
+import connect.order_service.global.slack.OrderCreatedNotification;
+import connect.order_service.global.slack.OrderNotificationService;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,11 +33,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OrderService {
     private final OrderRepository orderRepository;
-    private final UserClient userClient;
     private final CompanyClient companyClient;
     private final HubClient hubClient;
     private final DeliveryClient deliveryClient;
-    private final SlackWebhookSender slackWebhookSender;
+    private final OrderNotificationService orderNotificationService;
 
     private static final String MASTER_ROLE = "MASTER";
     private static final String MODIFIABLE_DELIVERY_STATUS = "HUB_WAITING";
@@ -97,7 +97,7 @@ public class OrderService {
         order.complete(deliveryId);
         orderRepository.save(order);
 
-        slackNotifyOrderCreated(userId, supplier, order);
+        orderNotificationService.notifyOrderCreated(OrderCreatedNotification.of(order, userId, supplier.userId()));
 
         return OrderResponse.from(order);
     }
@@ -236,42 +236,6 @@ public class OrderService {
     }
 
     //---------------------------------------------------------
-    // 주문자와 공급 업체 담당자를 멘션해서 알림 채널에 발송
-    private void slackNotifyOrderCreated(UUID ordererId, CompanyInfo supplier, Order order) {
-        try {
-            UserInfo orderer = userClient.getUser(ordererId);
-            UserInfo supplierManager = userClient.getUser(supplier.userId());
-            slackWebhookSender.send(buildOrderCreatedMessage(order, orderer.slackId(), supplierManager.slackId()));
-        } catch (Exception e) {
-            log.warn("주문 생성 Slack 알림 실패 - orderId={}", order.getId(), e);
-        }
-    }
-
-    private String buildOrderCreatedMessage(Order order, String ordererSlackId, String managerSlackId) {
-        return """
-                [주문 생성 알림] %s %s
-                주문번호: %s
-                상품 ID: %s
-                수량: %d
-                수령인: %s
-                요청사항: %s
-                주문일시: %s
-                """.formatted(
-                mention(ordererSlackId),
-                mention(managerSlackId),
-                order.getId(),
-                order.getProductId(),
-                order.getQuantity(),
-                order.getReceiver(),
-                order.getRequestMessage() == null ? "-" : order.getRequestMessage(),
-                order.getCreatedAt());
-    }
-
-    // slackId가 없으면 멘션 생략
-    private String mention(String slackId) {
-        return (slackId == null || slackId.isBlank()) ? "" : "<@" + slackId + ">";
-    }
-
     private void fail(Order order) {
         order.fail();
         orderRepository.save(order);

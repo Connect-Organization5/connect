@@ -4,10 +4,8 @@ package connect.order_service.domain.service;
 import connect.order_service.domain.client.clientInterface.CompanyClient;
 import connect.order_service.domain.client.clientInterface.DeliveryClient;
 import connect.order_service.domain.client.clientInterface.HubClient;
-import connect.order_service.domain.client.clientInterface.UserClient;
 import connect.order_service.domain.client.dto.response.CompanyInfo;
 import connect.order_service.domain.client.dto.response.DeliveryInfo;
-import connect.order_service.domain.client.dto.response.UserInfo;
 import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderResponse;
 import connect.order_service.domain.dto.UpdateOrderRequest;
@@ -16,7 +14,8 @@ import connect.order_service.domain.entity.OrderStatus;
 import connect.order_service.domain.repository.OrderRepository;
 import connect.order_service.global.exception.BaseException;
 import connect.order_service.global.exception.ErrorCode;
-import connect.order_service.global.slack.SlackWebhookSender;
+import connect.order_service.global.slack.OrderCreatedNotification;
+import connect.order_service.global.slack.OrderNotificationService;
 import feign.FeignException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,15 +43,13 @@ class OrderServiceTest {
     @Mock
     OrderRepository orderRepository;
     @Mock
-    UserClient userClient;
-    @Mock
     CompanyClient companyClient;
     @Mock
     HubClient hubClient;
     @Mock
     DeliveryClient deliveryClient;
     @Mock
-    SlackWebhookSender slackWebhookSender;
+    OrderNotificationService orderNotificationService;
 
     @InjectMocks
     OrderService orderService;
@@ -102,36 +99,36 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("Slack 알림이 실패해도 주문은 생성된다")
-    void createOrder_slackFailed() {
+    @DisplayName("주문 생성 성공 시 주문자와 공급 업체 담당자 정보로 알림을 요청한다")
+    void createOrder_notifyOrderCreated() {
         UUID myId = UUID.randomUUID();
         givenOrdererAndProduct(myId);
         when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(true);
         when(deliveryClient.createDelivery(any())).thenReturn(deliveryId);
-        when(userClient.getUser(myId)).thenReturn(new UserInfo(myId, null, "COMPANY", requesterCompanyId));
-        when(userClient.getUser(managerId)).thenThrow(new RuntimeException());   // 알림 전송 작업 실패
 
-        orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3));                         // 주문 작업은 정상  동작
+        orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3));
 
         Order saved = lastSavedOrder();
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.CREATED);   // 주문은 정상 생성
         assertThat(saved.getDeliveryId()).isEqualTo(deliveryId);
+
+        ArgumentCaptor<OrderCreatedNotification> captor = ArgumentCaptor.forClass(OrderCreatedNotification.class);
+        verify(orderNotificationService).notifyOrderCreated(captor.capture());   // 알림은 별도 빈에 위임
+        assertThat(captor.getValue().ordererId()).isEqualTo(myId);
+        assertThat(captor.getValue().supplierManagerId()).isEqualTo(managerId);
+        assertThat(captor.getValue().quantity()).isEqualTo(3);
     }
 
     @Test
-    @DisplayName("주문자 조회가 실패해도 주문은 생성된다")
-    void createOrder_ordererLookupFailed() {
+    @DisplayName("주문이 실패하면 알림을 보내지 않는다")
+    void createOrder_failed_noNotification() {
         UUID myId = UUID.randomUUID();
         givenOrdererAndProduct(myId);
-        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(true);
-        when(deliveryClient.createDelivery(any())).thenReturn(deliveryId);
-        when(userClient.getUser(myId)).thenThrow(new RuntimeException());   // 주문자 조회 실패
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(false);
 
-        orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3));  // 주문 작업은 정상 동작
-
-        Order saved = lastSavedOrder();
-        assertThat(saved.getStatus()).isEqualTo(OrderStatus.CREATED);   // 주문은 정상 생성
-        assertThat(saved.getDeliveryId()).isEqualTo(deliveryId);
+        assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
+                .hasMessage(ErrorCode.OUT_OF_STOCK.getMessage());
+        verify(orderNotificationService, never()).notifyOrderCreated(any());
     }
 
     @Test
