@@ -5,10 +5,17 @@ spring:
   application:
     name: eureka-gateway
 
+  # 민감한 값은 환경변수로 주입. 로컬에서는 모듈 폴더의 .env 파일(git 제외)을 읽음 (.env.example 참고)
+  config:
+    import: optional:file:.env[.properties]
+
+  main:
+    web-application-type: reactive  # Spring 애플리케이션이 리액티브 웹 애플리케이션으로 설정됨
+
   cloud:
     gateway:
       server:
-        webmvc:
+        webflux:
           routes:
             - id: user-service
               uri: lb://user-service
@@ -45,3 +52,8 @@ management:
     web:
       exposure:
         include: gateway
+
+service:
+  jwt:
+    # user-service 의 jwt.secret-key 와 같은 값이어야 함
+    secret-key: ${JWT_SECRET_KEY}
