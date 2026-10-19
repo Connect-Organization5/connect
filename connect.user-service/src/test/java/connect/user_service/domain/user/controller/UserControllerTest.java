@@ -31,9 +31,12 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -196,5 +199,51 @@ class UserControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         then(userService).should(never()).updateUser(any(), any(), any());
+    }
+
+    // ===== DELETE /users/{userId} =====
+
+    @Test
+    @DisplayName("DELETE /users/{userId} - 성공 시 204 No Content, 로그인 회원을 요청자로 전달")
+    void deleteUser_success() throws Exception {
+        mockMvc.perform(delete("/users/{userId}", 2L))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        then(userService).should().deleteUser(eq(2L), same(loginUser));
+    }
+
+    @Test
+    @DisplayName("DELETE /users/{userId} - 권한이 없으면 403 USER_ACCESS_DENIED")
+    void deleteUser_accessDenied() throws Exception {
+        // given
+        willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED))
+                .given(userService).deleteUser(eq(2L), any(User.class));
+
+        // when & then
+        mockMvc.perform(delete("/users/{userId}", 2L))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("USER_ACCESS_DENIED"));
+    }
+
+    @Test
+    @DisplayName("DELETE /users/{userId} - 대상 회원이 없으면 404 USER_NOT_FOUND")
+    void deleteUser_notFound() throws Exception {
+        // given
+        willThrow(new BaseException(ErrorCode.USER_NOT_FOUND))
+                .given(userService).deleteUser(eq(999L), any(User.class));
+
+        // when & then
+        mockMvc.perform(delete("/users/{userId}", 999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("DELETE /users/{userId} - userId가 숫자가 아니면 400 INVALID_INPUT")
+    void deleteUser_invalidUserId() throws Exception {
+        mockMvc.perform(delete("/users/{userId}", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        then(userService).should(never()).deleteUser(any(), any());
     }
 }

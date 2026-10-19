@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 @Service
@@ -108,6 +109,27 @@ public class UserService {
         );
 
         return UserResponse.from(user);
+    }
+
+    // 회원 삭제 (논리적 삭제, MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 삭제 가능)
+    @Transactional
+    public void deleteUser(Long userId, User requester) {
+        // 1. 권한 확인 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
+        validateMaster(requester);
+
+        // 2. 대상 회원 조회 (이미 삭제된 회원은 @SQLRestriction 으로 조회되지 않음)
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
+
+        // 3. 소속 확인
+        validateSameAffiliation(requester, user);
+
+        // 4. 논리적 삭제 (updatedAt, updatedBy 는 변경하지 않음)
+        int deleted = userRepository.softDeleteById(userId, requester.getId(), LocalDateTime.now());
+        if (deleted == 0) {
+            // 조회 이후 다른 요청이 먼저 삭제한 경우
+            throw new BaseException(ErrorCode.USER_NOT_FOUND);
+        }
     }
 
     private void validateMaster(User requester) {

@@ -41,9 +41,10 @@ public class UserController {
     }
 
     @DeleteMapping("/{userId}")
-    public ResponseEntity<?> deleteUser(@PathVariable Long userId) {
-
-        return null;
+    public ResponseEntity<Void> deleteUser(@PathVariable Long userId,
+                                           @AuthenticationPrincipal UserDetailsImpl userDetails) {
+        userService.deleteUser(userId, userDetails.getUser());
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
     // 회원 관련 정보 받기

@@ -18,11 +18,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -376,5 +378,133 @@ class UserServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SLACK_ID_ALREADY_EXISTS);
         then(passwordEncoder).should(never()).encode(any());
+    }
+
+    // ===== 회원 삭제 (논리적 삭제) =====
+
+    @Test
+    @DisplayName("회원 삭제 성공 - MASTER 이고 소속이 같으면 요청자 id 로 논리적 삭제")
+    void deleteUser_success() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", Long.valueOf(AFFILIATION_ID));
+        User target = userOf(2L, UserRole.USER, "COMPANY", Long.valueOf(AFFILIATION_ID));
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+        given(userRepository.softDeleteById(eq(2L), eq(1L), any(LocalDateTime.class))).willReturn(1);
+
+        // when
+        userService.deleteUser(2L, requester);
+
+        // then
+        then(userRepository).should().softDeleteById(eq(2L), eq(1L), any(LocalDateTime.class));
+        then(userRepository).should(never()).save(any());
+        then(userRepository).should(never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("회원 삭제 성공 - MASTER 는 본인 삭제 가능")
+    void deleteUser_masterSelf() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User self = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(1L)).willReturn(Optional.of(self));
+        given(userRepository.softDeleteById(eq(1L), eq(1L), any(LocalDateTime.class))).willReturn(1);
+
+        // when
+        userService.deleteUser(1L, requester);
+
+        // then
+        then(userRepository).should().softDeleteById(eq(1L), eq(1L), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("회원 삭제 실패 - USER 권한이면 USER_ACCESS_DENIED, 대상 회원은 조회하지 않음")
+    void deleteUser_userRole() {
+        // given
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.deleteUser(2L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).findById(any());
+        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("회원 삭제 실패 - USER 는 본인도 삭제 불가")
+    void deleteUser_userSelf() {
+        // given
+        User requester = userOf(1L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.deleteUser(1L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("회원 삭제 실패 - 소속 유형이 다르면 USER_ACCESS_DENIED")
+    void deleteUser_differentAffiliationType() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "HUB", AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+
+        // when & then
+        assertThatThrownBy(() -> userService.deleteUser(2L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("회원 삭제 실패 - 소속 ID 가 다르면 USER_ACCESS_DENIED")
+    void deleteUser_differentAffiliationId() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "COMPANY", AFFILIATION_ID + 1);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+
+        // when & then
+        assertThatThrownBy(() -> userService.deleteUser(2L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("회원 삭제 실패 - 대상 회원이 없거나 이미 삭제됐으면 USER_NOT_FOUND")
+    void deleteUser_notFound() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(999L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> userService.deleteUser(999L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_NOT_FOUND);
+        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("회원 삭제 실패 - 조회 후 다른 요청이 먼저 삭제해서 반영된 행이 0 이면 USER_NOT_FOUND")
+    void deleteUser_concurrentlyDeleted() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, "COMPANY", AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, "COMPANY", AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+        given(userRepository.softDeleteById(eq(2L), eq(1L), any(LocalDateTime.class))).willReturn(0);
+
+        // when & then
+        assertThatThrownBy(() -> userService.deleteUser(2L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_NOT_FOUND);
     }
 }

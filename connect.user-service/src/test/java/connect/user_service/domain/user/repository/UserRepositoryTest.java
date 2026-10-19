@@ -4,6 +4,7 @@ import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.global.config.JpaAuditingConfig;
 import connect.user_service.global.security.UserDetailsImpl;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,9 @@ class UserRepositoryTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private User user(String username, String email, String slackId) {
         return new User(username, "encodedPw", email, UserRole.USER, "COMPANY", 1L, slackId);
@@ -145,6 +149,87 @@ class UserRepositoryTest {
         assertThat(saved.getCreatedAt()).isEqualTo(createdAt);
         assertThat(saved.getCreatedBy()).isNull();
         assertThat(saved.getDeletedAt()).isNull();
+    }
+
+    // ===== 논리적 삭제 =====
+
+    private void loginAs(Long userId) {
+        User loginUser = user("login" + userId, "login" + userId + "@test.com", "slack-login" + userId);
+        loginUser.setId(userId);
+        UserDetailsImpl userDetails = new UserDetailsImpl(loginUser);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
+    }
+
+    // 삭제된 행은 @SQLRestriction 때문에 JPA 로 조회되지 않으므로 네이티브 쿼리로 직접 조회
+    private Object[] auditColumns(Long id) {
+        return (Object[]) entityManager.createNativeQuery(
+                        "SELECT updated_at, updated_by, deleted_at, deleted_by FROM users WHERE id = ?")
+                .setParameter(1, id)
+                .getSingleResult();
+    }
+
+    @Test
+    @DisplayName("논리적 삭제 시 deleted_at, deleted_by 만 기록되고 updated_at, updated_by 는 그대로")
+    void softDelete_doesNotChangeUpdatedColumns() {
+        // given: id 50 회원이 로그인한 상태에서 저장 → updated_by = 50
+        loginAs(50L);
+        User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
+        Object[] before = auditColumns(saved.getId());
+
+        // when: id 99 회원이 로그인한 상태에서 삭제
+        loginAs(99L);
+        int deleted = userRepository.softDeleteById(saved.getId(), 99L, LocalDateTime.now());
+
+        // then
+        Object[] after = auditColumns(saved.getId());
+        assertThat(deleted).isEqualTo(1);
+        assertThat(after[0]).isEqualTo(before[0]);                    // updated_at 그대로
+        assertThat(((Number) after[1]).longValue()).isEqualTo(50L);   // updated_by 그대로
+        assertThat(after[2]).isNotNull();                             // deleted_at 기록
+        assertThat(((Number) after[3]).longValue()).isEqualTo(99L);   // deleted_by 기록
+    }
+
+    @Test
+    @DisplayName("논리적 삭제된 회원은 조회, 중복 확인에서 제외")
+    void softDelete_excludedFromQueries() {
+        // given
+        User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
+
+        // when
+        userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now());
+
+        // then
+        assertThat(userRepository.findById(saved.getId())).isEmpty();
+        assertThat(userRepository.findByUsername("tester")).isEmpty();
+        assertThat(userRepository.existsByUsername("tester")).isFalse();
+        assertThat(userRepository.existsByEmail("tester@test.com")).isFalse();
+        assertThat(userRepository.existsBySlackId("slack-1")).isFalse();
+        assertThat(userRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("이미 삭제됐거나 없는 회원을 삭제하면 0 반환")
+    void softDelete_alreadyDeletedOrMissing() {
+        // given
+        User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
+        userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now());
+
+        // when & then
+        assertThat(userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now())).isZero();
+        assertThat(userRepository.softDeleteById(999L, 1L, LocalDateTime.now())).isZero();
+    }
+
+    @Test
+    @DisplayName("삭제된 회원의 username 은 DB unique 제약 때문에 재사용 불가 (409 DUPLICATE_RESOURCE 로 처리)")
+    void softDelete_valuesStillOccupied() {
+        // given
+        User saved = userRepository.saveAndFlush(user("tester", "tester@test.com", "slack-1"));
+        userRepository.softDeleteById(saved.getId(), 1L, LocalDateTime.now());
+
+        // when & then
+        assertThatThrownBy(() -> userRepository.saveAndFlush(user("tester", "other@test.com", "slack-2")))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @AfterEach

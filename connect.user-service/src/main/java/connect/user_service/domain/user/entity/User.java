@@ -5,12 +5,14 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Getter
 @Setter
 @NoArgsConstructor
 @Table(name = "users")
+@SQLRestriction("deleted_at IS NULL") // 논리적으로 삭제된 회원은 모든 조회에서 제외
 public class User extends TimeStamp {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
