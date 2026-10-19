@@ -322,13 +322,12 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
     }
 
     @Nested
-    @DisplayName("업체 관리자 지정 (내부 API)")
+    @DisplayName("회원가입 시 기존 업체에 관리자 지정 (내부 API)")
     class AssignManager {
 
-        private ResultActions requestAssign(UUID companyId, String role, UUID managerId) throws Exception {
+        // 회원가입 중 호출이라 사용자 헤더 없이 요청한다
+        private ResultActions requestAssign(UUID companyId, UUID managerId) throws Exception {
             return mockMvc.perform(patch("/internal/companies/{companyId}/manager", companyId)
-                    .header("X-User-Id", masterId)
-                    .header("X-User-Role", role)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("""
                             {"userId": "%s"}
@@ -340,14 +339,12 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
         void assign() throws Exception {
             UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
 
-            requestAssign(companyId, ROLE_MASTER, ownerId)
+            requestAssign(companyId, ownerId)
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.message").value("업체 관리자가 지정되었습니다."))
+                    .andExpect(jsonPath("$.message").value("업체 연결이 처리되었습니다."))
                     .andExpect(jsonPath("$.data.userId").value(ownerId.toString()));
 
-            Company assigned = findCompany(companyId);
-            assertThat(assigned.getUserId()).isEqualTo(ownerId);
-            assertThat(assigned.getUpdatedBy()).isEqualTo(masterId);
+            assertThat(findCompany(companyId).getUserId()).isEqualTo(ownerId);
 
             mockMvc.perform(put("/companies/{companyId}", companyId)
                             .header("X-User-Id", ownerId)
@@ -358,27 +355,15 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
         }
 
         @Test
-        @DisplayName("이미 관리자가 있으면 409를 반환하고 기존 관리자가 유지된다")
+        @DisplayName("이미 관리자가 있으면 200을 반환하고 기존 관리자가 유지된다 (두 번째 직원 가입)")
         void assignAlreadyAssigned() throws Exception {
             UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
 
-            requestAssign(companyId, ROLE_MASTER, UUID.randomUUID())
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("COMPANY_MANAGER_ALREADY_ASSIGNED"));
+            requestAssign(companyId, UUID.randomUUID())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.userId").value(ownerId.toString()));
 
             assertThat(findCompany(companyId).getUserId()).isEqualTo(ownerId);
-        }
-
-        @Test
-        @DisplayName("MASTER가 아니면 403을 반환하고 관리자가 지정되지 않는다")
-        void assignByUser() throws Exception {
-            UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
-
-            requestAssign(companyId, ROLE_USER, ownerId)
-                    .andExpect(status().isForbidden())
-                    .andExpect(jsonPath("$.code").value("COMPANY_ACCESS_DENIED"));
-
-            assertThat(findCompany(companyId).getUserId()).isNull();
         }
 
         @Test
@@ -387,7 +372,7 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
             UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
             requestDelete(companyId, masterId, ROLE_MASTER).andExpect(status().isOk());
 
-            requestAssign(companyId, ROLE_MASTER, ownerId)
+            requestAssign(companyId, ownerId)
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("COMPANY_NOT_FOUND"));
         }
@@ -398,12 +383,69 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
             UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
 
             mockMvc.perform(patch("/internal/companies/{companyId}/manager", companyId)
-                            .header("X-User-Role", ROLE_MASTER)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                     .andExpect(jsonPath("$.message").value("사용자 ID는 필수입니다."));
+        }
+    }
+
+    @Nested
+    @DisplayName("회원가입 시 업체 생성 (내부 API)")
+    class CreateForSignUp {
+
+        private ResultActions requestCreateForSignUp(UUID userId, String name) throws Exception {
+            return mockMvc.perform(post("/internal/companies")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"userId": "%s", "hubId": "%s", "name": "%s", "address": "서울시 강남구"}
+                            """.formatted(userId, hubId, name)));
+        }
+
+        @Test
+        @DisplayName("사용자 헤더 없이 생성되고 가입하는 사용자가 관리자로 저장되며, 그 사용자는 업체를 수정할 수 있다")
+        void createForSignUp() throws Exception {
+            String response = requestCreateForSignUp(ownerId, "스파르타 물류")
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.message").value("업체가 생성되었습니다."))
+                    .andExpect(jsonPath("$.data.userId").value(ownerId.toString()))
+                    .andReturn().getResponse().getContentAsString();
+            UUID companyId = UUID.fromString(JsonPath.read(response, "$.data.id"));
+
+            assertThat(findCompany(companyId).getUserId()).isEqualTo(ownerId);
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", ownerId)
+                            .header("X-User-Role", ROLE_USER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(hubId, "스파르타 택배", "부산시 해운대구")))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("삭제되지 않은 업체와 이름이 같으면 409를 반환한다")
+        void createForSignUpWithDuplicateName() throws Exception {
+            createCompany("스파르타 물류", "서울시 강남구");
+
+            requestCreateForSignUp(ownerId, "스파르타 물류")
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COMPANY_ALREADY_EXISTS"));
+        }
+
+        @Test
+        @DisplayName("userId가 없으면 400 VALIDATION_FAILED를 반환하고 저장하지 않는다")
+        void createForSignUpWithoutUserId() throws Exception {
+            mockMvc.perform(post("/internal/companies")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"hubId": "%s", "name": "스파르타 물류", "address": "서울시 강남구"}
+                                    """.formatted(hubId)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                    .andExpect(jsonPath("$.message").value("사용자 ID는 필수입니다."));
+
+            assertThat(companyRepository.count()).isZero();
         }
     }
 }
