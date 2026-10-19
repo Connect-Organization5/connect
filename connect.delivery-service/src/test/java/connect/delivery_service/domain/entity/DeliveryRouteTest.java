@@ -1,5 +1,7 @@
 package connect.delivery_service.domain.entity;
 
+import connect.delivery_service.global.exception.BaseException;
+import connect.delivery_service.global.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -53,7 +55,8 @@ class DeliveryRouteTest {
         @DisplayName("출발 전에는 도착 처리 불가, 실제 기록도 남지 않음")
         void completeBeforeStart() {
             assertThatThrownBy(() -> deliveryRoute.complete(BigDecimal.TEN, 10))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(deliveryRoute.getActualDistance()).isNull();
             assertThat(deliveryRoute.getActualDuration()).isNull();
         }
@@ -65,7 +68,8 @@ class DeliveryRouteTest {
             deliveryRoute.complete(BigDecimal.TEN, 10);
 
             assertThatThrownBy(() -> deliveryRoute.startMoving())
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
         }
     }
 
@@ -87,7 +91,8 @@ class DeliveryRouteTest {
             deliveryRoute.startMoving();
 
             assertThatThrownBy(() -> deliveryRoute.cancel())
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(deliveryRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.MOVING);
         }
     }
@@ -112,7 +117,8 @@ class DeliveryRouteTest {
             deliveryRoute.startMoving();
 
             assertThatThrownBy(() -> deliveryRoute.changeDeliveryUserId(UUID.randomUUID()))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(deliveryRoute.getDeliveryUserId()).isEqualTo(deliveryUserId);
         }
     }

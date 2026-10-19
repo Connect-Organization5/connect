@@ -1,4 +1,4 @@
-package connect.delivery_service.global;
+package connect.delivery_service.global.config;
 
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;

@@ -1,5 +1,7 @@
 package connect.delivery_service.domain.entity;
 
+import connect.delivery_service.global.exception.BaseException;
+import connect.delivery_service.global.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -69,7 +71,8 @@ class DeliveryTest {
         @DisplayName("단계를 건너뛰면 예외 (HUB_WAITING 에서 바로 complete)")
         void skipStep() {
             assertThatThrownBy(() -> delivery.complete())
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_WAITING);
         }
 
@@ -79,7 +82,8 @@ class DeliveryTest {
             delivery.startHubMoving();
 
             assertThatThrownBy(() -> delivery.startHubMoving())
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
         }
 
         @Test
@@ -87,8 +91,10 @@ class DeliveryTest {
         void afterDelivered() {
             moveToDelivered();
 
-            assertThatThrownBy(() -> delivery.startHubMoving()).isInstanceOf(IllegalStateException.class);
-            assertThatThrownBy(() -> delivery.cancel()).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> delivery.startHubMoving()).isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
+            assertThatThrownBy(() -> delivery.cancel()).isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
         }
     }
 
@@ -110,7 +116,8 @@ class DeliveryTest {
             delivery.startHubMoving();
 
             assertThatThrownBy(() -> delivery.cancel())
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_MOVING);
         }
 
@@ -120,7 +127,8 @@ class DeliveryTest {
             delivery.cancel();
 
             assertThatThrownBy(() -> delivery.startHubMoving())
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
         }
     }
 
@@ -146,7 +154,8 @@ class DeliveryTest {
             delivery.startHubMoving();
 
             assertThatThrownBy(() -> delivery.changeDeliveryUserId(UUID.randomUUID()))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(delivery.getDeliveryUserId()).isEqualTo(deliveryUserId);
         }
 
@@ -164,7 +173,8 @@ class DeliveryTest {
             delivery.startHubMoving();
 
             assertThatThrownBy(() -> delivery.changeReceiver("김철수"))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(delivery.getReceiver()).isEqualTo("홍길동");
         }
     }
@@ -220,11 +230,13 @@ class DeliveryTest {
         @DisplayName("진행 중인 배송은 삭제 불가")
         void deleteInProgress() {
             assertThatThrownBy(() -> delivery.delete(UUID.randomUUID()))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
 
             moveToDestHubArrived();
             assertThatThrownBy(() -> delivery.delete(UUID.randomUUID()))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
 
             assertThat(delivery.isDeleted()).isFalse();
         }

@@ -1,4 +1,4 @@
-package connect.delivery_service.global;
+package connect.delivery_service.global.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.EntityListeners;

@@ -1,12 +1,12 @@
 package connect.delivery_service.domain.entity;
 
-import connect.delivery_service.domain.dto.CreateDeliveryRequest;
-import connect.delivery_service.global.BaseEntity;
+import connect.delivery_service.global.entity.BaseEntity;
 import jakarta.persistence.*;
+import connect.delivery_service.global.exception.BaseException;
+import connect.delivery_service.global.exception.ErrorCode;
 import lombok.*;
 import org.hibernate.annotations.SQLRestriction;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity(name = "p_deliveries")
@@ -88,7 +88,7 @@ public class Delivery extends BaseEntity {
     public void assignDeliveryUserId(UUID deliveryUserId) {
         validateDeliveryStatus(DeliveryStatus.HUB_WAITING);
         if (this.deliveryUserId != null){
-            throw new IllegalStateException();
+            throw new BaseException(ErrorCode.DELIVERY_USER_ALREADY_ASSIGNED);
         }
         this.deliveryUserId = deliveryUserId;
     }
@@ -119,14 +119,14 @@ public class Delivery extends BaseEntity {
     // 삭제
     public void delete(UUID userId) {
         if (this.deliveryStatus != DeliveryStatus.DELIVERED && this.deliveryStatus != DeliveryStatus.CANCELED) {
-            throw new IllegalStateException();
+            throw new BaseException(ErrorCode.INVALID_DELIVERY_STATUS);
         }
         softDelete(userId);
     }
 
     private void validateDeliveryStatus(DeliveryStatus expectedStatus) {
         if (this.deliveryStatus != expectedStatus){
-            throw new IllegalStateException();
+            throw new BaseException(ErrorCode.INVALID_DELIVERY_STATUS);
         }
     }
 }
