@@ -5,11 +5,12 @@ import connect.user_service.domain.user.entity.UserRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Null;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
-// PUT 방식이므로 모든 필드 필수
+// PUT 방식이므로 모든 필드 필수 (username, 소속은 변경 불가)
 @Getter
 @Setter
 public class UpdateUserRequestDto {
@@ -28,9 +29,10 @@ public class UpdateUserRequestDto {
     @NotNull(message = "권한을 입력하셔야 합니다.")
     private UserRole role;
 
-    @NotNull(message = "소속 유형을 입력하셔야 합니다. (COMPANY, HUB)")
+    // 소속은 변경 불가. DTO 에 없으면 JSON 에 보내도 조용히 무시되므로 필드로 받아서 값이 있으면 400 으로 거부
+    @Null(message = "소속은 변경할 수 없습니다.")
     private AffiliationType affiliationType;
 
-    @NotNull(message = "소속 ID를 입력하셔야 합니다.")
+    @Null(message = "소속은 변경할 수 없습니다.")
     private Long affiliationId;
 }

@@ -39,8 +39,7 @@ public class AuthConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         // /auth/login 경로에 대한 접근을 허용합니다. 이 경로는 인증 없이 접근할 수 있습니다.
                         .requestMatchers("/auth/login").permitAll()
-                        .requestMatchers("/auth/signup").permitAll()
-                        // 그 외의 모든 요청은 인증이 필요합니다.
+                        // 그 외의 모든 요청은 인증이 필요합니다. (/auth/signup 은 MASTER 가 회원을 생성하므로 인증 필요)
                         .anyRequest().authenticated()
                 );
 

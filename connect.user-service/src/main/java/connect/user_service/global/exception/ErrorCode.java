@@ -26,7 +26,10 @@ public enum ErrorCode {
     USER_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 존재하는 유저입니다."),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 존재하는 이메일 주소입니다."),
     SLACK_ID_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 존재하는 Slack ID 입니다."),
-    DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "이미 존재하는 데이터입니다.");
+    LAST_MASTER_CANNOT_BE_DELETED(HttpStatus.CONFLICT, "소속의 마지막 MASTER 는 삭제할 수 없습니다."),
+    LAST_MASTER_CANNOT_BE_DEMOTED(HttpStatus.CONFLICT, "소속의 마지막 MASTER 는 USER 로 변경할 수 없습니다."),
+    DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "이미 존재하는 데이터입니다."),
+    LOCK_CONFLICT(HttpStatus.CONFLICT, "다른 요청이 처리 중입니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

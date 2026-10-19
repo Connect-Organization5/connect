@@ -2,6 +2,7 @@ package connect.user_service.global.exception;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -31,6 +32,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException e) {
         log.warn("DataIntegrityViolation: {}", e.getMostSpecificCause().getMessage());
         return toResponse(ErrorResponse.of(ErrorCode.DUPLICATE_RESOURCE));
+    }
+
+    // 비관적 락 대기 시간 초과 또는 데드락 (같은 소속 MASTER 를 동시에 삭제/강등하는 경우 등)
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handlePessimisticLockingFailure(PessimisticLockingFailureException e) {
+        log.warn("PessimisticLockingFailure: {}", e.getMostSpecificCause().getMessage());
+        return toResponse(ErrorResponse.of(ErrorCode.LOCK_CONFLICT));
     }
 
     // @Valid 유효성 검사 실패

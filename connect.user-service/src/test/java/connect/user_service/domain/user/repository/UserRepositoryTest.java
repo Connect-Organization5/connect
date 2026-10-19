@@ -19,6 +19,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -143,7 +144,7 @@ class UserRepositoryTest {
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
 
         // when
-        saved.update("new@test.com", "newEncodedPw", "new-slack", UserRole.MASTER, AffiliationType.HUB, 2000L);
+        saved.update("new@test.com", "newEncodedPw", "new-slack", UserRole.MASTER);
         userRepository.saveAndFlush(saved);
 
         // then
@@ -186,6 +187,26 @@ class UserRepositoryTest {
         assertThat(result.getContent()).extracting(User::getId)
                 .containsExactlyInAnyOrder(master.getId(), user1.getId());
         assertThat(result.getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("잠금 조회 - 같은 소속의 MASTER 만 조회, USER, 다른 소속, 삭제된 MASTER 는 제외")
+    void findAllByAffiliationAndRoleForUpdate_filters() {
+        // given
+        User master1 = userRepository.saveAndFlush(member("master1", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
+        User master2 = userRepository.saveAndFlush(member("master2", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
+        userRepository.saveAndFlush(member("user1", UserRole.USER, AffiliationType.COMPANY, 1000L));
+        userRepository.saveAndFlush(member("otherType", UserRole.MASTER, AffiliationType.HUB, 1000L));
+        userRepository.saveAndFlush(member("otherId", UserRole.MASTER, AffiliationType.COMPANY, 2000L));
+        User deleted = userRepository.saveAndFlush(member("deleted", UserRole.MASTER, AffiliationType.COMPANY, 1000L));
+        userRepository.softDeleteById(deleted.getId(), 1L, LocalDateTime.now());
+
+        // when
+        List<User> result = userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, 1000L, UserRole.MASTER);
+
+        // then
+        assertThat(result).extracting(User::getId)
+                .containsExactlyInAnyOrder(master1.getId(), master2.getId());
     }
 
     @Test

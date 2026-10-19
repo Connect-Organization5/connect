@@ -11,27 +11,20 @@ import connect.user_service.domain.user.repository.UserRepository;
 import connect.user_service.global.dto.PageResponse;
 import connect.user_service.global.exception.BaseException;
 import connect.user_service.global.exception.ErrorCode;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,8 +32,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,24 +43,8 @@ class UserServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
-    @Mock
-    private AffiliationCounterService affiliationCounterService;
-
-    @Mock
-    private TransactionTemplate transactionTemplate;
-
     @InjectMocks
     private UserService userService;
-
-    @BeforeEach
-    void setUpTransactionTemplate() {
-        // 트랜잭션 없이 콜백만 그대로 실행 (회원가입 외 테스트에서는 쓰이지 않으므로 lenient)
-        lenient().doAnswer(invocation -> {
-            Consumer<TransactionStatus> callback = invocation.getArgument(0);
-            callback.accept(null);
-            return null;
-        }).when(transactionTemplate).executeWithoutResult(any());
-    }
 
     private SignUpRequestDto signUpRequest() {
         SignUpRequestDto request = new SignUpRequestDto();
@@ -77,9 +52,14 @@ class UserServiceTest {
         request.setPassword("password1!");
         request.setEmail("tester@test.com");
         request.setAffiliationType(AffiliationType.COMPANY);
-        request.setAffiliationId(1L);
+        request.setAffiliationId(AFFILIATION_ID);
         request.setSlackId("slack-1");
         return request;
+    }
+
+    // 회원 생성 요청자 (signUpRequest 와 같은 소속의 MASTER)
+    private User masterRequester() {
+        return userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
     }
 
     private LoginRequestDto loginRequest(String username, String password) {
@@ -132,88 +112,89 @@ class UserServiceTest {
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
     }
 
-    // 중복 체크를 모두 통과하고, 소속 카운터가 이번 가입자의 순서로 signupOrder 를 반환하도록 설정
-    private void givenSignupPassesWithOrder(long signupOrder) {
+    @Test
+    @DisplayName("회원가입 성공 - MASTER 가 같은 소속 회원을 암호화된 비밀번호와 USER 권한으로 저장")
+    void signup_success() {
+        // given
+        SignUpRequestDto request = signUpRequest();
         given(userRepository.existsByUsername("tester")).willReturn(false);
         given(userRepository.existsByEmail("tester@test.com")).willReturn(false);
         given(userRepository.existsBySlackId("slack-1")).willReturn(false);
         given(passwordEncoder.encode("password1!")).willReturn("encodedPw");
-        given(affiliationCounterService.increaseAndGet(AffiliationType.COMPANY, 1L)).willReturn(signupOrder);
-    }
-
-    private User savedUser() {
-        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        then(userRepository).should().save(captor.capture());
-        return captor.getValue();
-    }
-
-    @Test
-    @DisplayName("회원가입 성공 - 암호화된 비밀번호와 요청 정보로 저장, 요청 소속으로 가입 순서 확인")
-    void signup_success() {
-        // given
-        givenSignupPassesWithOrder(6);
 
         // when
-        userService.signup(signUpRequest());
+        UserResponse response = userService.signup(request, masterRequester());
 
-        // then: 카운터 생성 → (트랜잭션 안에서) 가입 순서 증가 → 저장 순서
-        InOrder inOrder = inOrder(affiliationCounterService, transactionTemplate, userRepository);
-        inOrder.verify(affiliationCounterService).ensureCounter(AffiliationType.COMPANY, 1L);
-        inOrder.verify(transactionTemplate).executeWithoutResult(any());
-        inOrder.verify(affiliationCounterService).increaseAndGet(AffiliationType.COMPANY, 1L);
-        inOrder.verify(userRepository).save(any(User.class));
-        User saved = savedUser();
+        // then
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        then(userRepository).should().save(captor.capture());
+        User saved = captor.getValue();
         assertThat(saved.getUsername()).isEqualTo("tester");
         assertThat(saved.getPassword()).isEqualTo("encodedPw");
         assertThat(saved.getEmail()).isEqualTo("tester@test.com");
+        assertThat(saved.getRole()).isEqualTo(UserRole.USER);
         assertThat(saved.getAffiliationType()).isEqualTo(AffiliationType.COMPANY);
-        assertThat(saved.getAffiliationId()).isEqualTo(1L);
+        assertThat(saved.getAffiliationId()).isEqualTo(AFFILIATION_ID);
         assertThat(saved.getSlackId()).isEqualTo("slack-1");
-    }
-
-    @ParameterizedTest(name = "{0}번째 가입자는 MASTER")
-    @ValueSource(longs = {1, 2, 3, 4, 5})
-    @DisplayName("회원가입 - 같은 소속에서 처음 가입한 5명은 MASTER")
-    void signup_firstFiveAreMaster(long signupOrder) {
-        // given
-        givenSignupPassesWithOrder(signupOrder);
-
-        // when
-        userService.signup(signUpRequest());
-
-        // then
-        assertThat(savedUser().getRole()).isEqualTo(UserRole.MASTER);
-    }
-
-    @ParameterizedTest(name = "{0}번째 가입자는 USER")
-    @ValueSource(longs = {6, 7, 100})
-    @DisplayName("회원가입 - 같은 소속에서 6번째 가입자부터는 USER")
-    void signup_afterFiveAreUser(long signupOrder) {
-        // given
-        givenSignupPassesWithOrder(signupOrder);
-
-        // when
-        userService.signup(signUpRequest());
-
-        // then
-        assertThat(savedUser().getRole()).isEqualTo(UserRole.USER);
+        assertThat(response.username()).isEqualTo("tester");
     }
 
     @Test
-    @DisplayName("회원가입 실패 - username 중복이면 가입 순서를 올리지 않음")
+    @DisplayName("회원가입 실패 - USER 가 요청하면 USER_ACCESS_DENIED, 중복 확인도 하지 않음")
+    void signup_userRole() {
+        // given
+        User requester = userOf(1L, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.signup(signUpRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).shouldHaveNoInteractions();
+        then(passwordEncoder).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("회원가입 실패 - MASTER 라도 소속 유형이 다르면 USER_ACCESS_DENIED")
+    void signup_differentAffiliationType() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, AffiliationType.HUB, AFFILIATION_ID);
+
+        // when & then
+        assertThatThrownBy(() -> userService.signup(signUpRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("회원가입 실패 - MASTER 라도 소속 ID 가 다르면 USER_ACCESS_DENIED")
+    void signup_differentAffiliationId() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID + 1);
+
+        // when & then
+        assertThatThrownBy(() -> userService.signup(signUpRequest(), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        then(userRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("회원가입 실패 - username 중복")
     void signup_duplicateUsername() {
         // given
         given(userRepository.existsByUsername("tester")).willReturn(true);
 
         // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest()))
+        assertThatThrownBy(() -> userService.signup(signUpRequest(), masterRequester()))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_ALREADY_EXISTS);
         then(userRepository).should(never()).save(any());
         then(passwordEncoder).should(never()).encode(any());
-        then(affiliationCounterService).should(never()).ensureCounter(any(), any());
-        then(affiliationCounterService).should(never()).increaseAndGet(any(), any());
     }
 
     @Test
@@ -224,12 +205,11 @@ class UserServiceTest {
         given(userRepository.existsByEmail("tester@test.com")).willReturn(true);
 
         // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest()))
+        assertThatThrownBy(() -> userService.signup(signUpRequest(), masterRequester()))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.EMAIL_ALREADY_EXISTS);
         then(userRepository).should(never()).save(any());
-        then(affiliationCounterService).should(never()).increaseAndGet(any(), any());
     }
 
     @Test
@@ -241,12 +221,11 @@ class UserServiceTest {
         given(userRepository.existsBySlackId("slack-1")).willReturn(true);
 
         // when & then
-        assertThatThrownBy(() -> userService.signup(signUpRequest()))
+        assertThatThrownBy(() -> userService.signup(signUpRequest(), masterRequester()))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.SLACK_ID_ALREADY_EXISTS);
         then(userRepository).should(never()).save(any());
-        then(affiliationCounterService).should(never()).increaseAndGet(any(), any());
     }
 
     // ===== 회원 단건 조회 =====
@@ -390,13 +369,11 @@ class UserServiceTest {
         request.setPassword("newPassword1!");
         request.setSlackId("new-slack");
         request.setRole(UserRole.MASTER);
-        request.setAffiliationType(AffiliationType.HUB);
-        request.setAffiliationId(2000L);
         return request;
     }
 
     @Test
-    @DisplayName("회원 수정 성공 - MASTER 이고 소속이 같으면 6개 필드 모두 수정")
+    @DisplayName("회원 수정 성공 - MASTER 이고 소속이 같으면 email, password, slackId, role 수정, 소속은 그대로")
     void updateUser_success() {
         // given
         User requester = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, Long.valueOf(AFFILIATION_ID));
@@ -414,8 +391,8 @@ class UserServiceTest {
         assertThat(target.getPassword()).isEqualTo("newEncodedPw");
         assertThat(target.getSlackId()).isEqualTo("new-slack");
         assertThat(target.getRole()).isEqualTo(UserRole.MASTER);
-        assertThat(target.getAffiliationType()).isEqualTo(AffiliationType.HUB);
-        assertThat(target.getAffiliationId()).isEqualTo(2000L);
+        assertThat(target.getAffiliationType()).isEqualTo(AffiliationType.COMPANY);
+        assertThat(target.getAffiliationId()).isEqualTo(AFFILIATION_ID);
         assertThat(target.getUsername()).isEqualTo("user2");
         assertThat(response.id()).isEqualTo(2L);
         assertThat(response.email()).isEqualTo("new@test.com");
@@ -435,6 +412,45 @@ class UserServiceTest {
 
         // then
         assertThat(self.getEmail()).isEqualTo("new@test.com");
+    }
+
+    @Test
+    @DisplayName("회원 수정 실패 - 소속의 마지막 MASTER 를 USER 로 바꾸면 LAST_MASTER_CANNOT_BE_DEMOTED")
+    void updateUser_demoteLastMaster() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        User self = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        given(userRepository.findById(1L)).willReturn(Optional.of(self));
+        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER)).willReturn(List.of(self));
+        UpdateUserRequestDto request = updateRequest();
+        request.setRole(UserRole.USER);
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateUser(1L, request, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.LAST_MASTER_CANNOT_BE_DEMOTED);
+        assertThat(self.getRole()).isEqualTo(UserRole.MASTER);
+        then(passwordEncoder).should(never()).encode(any());
+    }
+
+    @Test
+    @DisplayName("회원 수정 성공 - 같은 소속에 다른 MASTER 가 있으면 MASTER 를 USER 로 변경 가능")
+    void updateUser_demoteMasterWithOtherMaster() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        User target = userOf(2L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER)).willReturn(List.of(requester, target));
+        given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
+        UpdateUserRequestDto request = updateRequest();
+        request.setRole(UserRole.USER);
+
+        // when
+        userService.updateUser(2L, request, requester);
+
+        // then
+        assertThat(target.getRole()).isEqualTo(UserRole.USER);
     }
 
     @Test
@@ -625,12 +641,14 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 삭제 성공 - MASTER 는 본인 삭제 가능")
+    @DisplayName("회원 삭제 성공 - 같은 소속에 다른 MASTER 가 있으면 MASTER 는 본인 삭제 가능")
     void deleteUser_masterSelf() {
         // given
         User requester = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User self = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         given(userRepository.findById(1L)).willReturn(Optional.of(self));
+        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER))
+                .willReturn(List.of(self, userOf(2L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID)));
         given(userRepository.softDeleteById(eq(1L), eq(1L), any(LocalDateTime.class))).willReturn(1);
 
         // when
@@ -638,6 +656,39 @@ class UserServiceTest {
 
         // then
         then(userRepository).should().softDeleteById(eq(1L), eq(1L), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("회원 삭제 실패 - 소속의 마지막 MASTER 면 LAST_MASTER_CANNOT_BE_DELETED")
+    void deleteUser_lastMaster() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        User self = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        given(userRepository.findById(1L)).willReturn(Optional.of(self));
+        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER)).willReturn(List.of(self));
+
+        // when & then
+        assertThatThrownBy(() -> userService.deleteUser(1L, requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.LAST_MASTER_CANNOT_BE_DELETED);
+        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("회원 삭제 성공 - 대상이 USER 면 MASTER 수를 확인하지 않음")
+    void deleteUser_userTargetSkipsMasterCount() {
+        // given
+        User requester = userOf(1L, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        User target = userOf(2L, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
+        given(userRepository.findById(2L)).willReturn(Optional.of(target));
+        given(userRepository.softDeleteById(eq(2L), eq(1L), any(LocalDateTime.class))).willReturn(1);
+
+        // when
+        userService.deleteUser(2L, requester);
+
+        // then
+        then(userRepository).should(never()).findAllByAffiliationAndRoleForUpdate(any(), any(), any());
     }
 
     @Test

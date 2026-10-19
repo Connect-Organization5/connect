@@ -3,6 +3,7 @@ package connect.user_service.domain.auth.controller;
 import connect.user_service.global.security.JwtUtil;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
+import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -10,6 +11,8 @@ import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.exception.BaseException;
 import connect.user_service.global.exception.ErrorCode;
 import connect.user_service.global.exception.GlobalExceptionHandler;
+import connect.user_service.global.security.UserDetailsImpl;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -26,6 +32,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
@@ -59,11 +66,27 @@ class AuthControllerTest {
 
     private MockMvc mockMvc;
 
+    private User loginUser;
+
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(authController)
                 .setControllerAdvice(new GlobalExceptionHandler())
+                // @AuthenticationPrincipal 에 SecurityContext 의 로그인 회원을 주입
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .build();
+
+        // JwtAuthorizationFilter 가 하는 것처럼 로그인 회원(MASTER)을 SecurityContext 에 저장
+        loginUser = new User("master", "encodedPw", "master@test.com", UserRole.MASTER, AffiliationType.COMPANY, 1L, "slack-master");
+        loginUser.setId(1L);
+        UserDetailsImpl userDetails = new UserDetailsImpl(loginUser);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     private ResultActions signup(String body) throws Exception {
@@ -73,22 +96,35 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("POST /auth/signup - 성공 시 201 과 access_token 반환")
+    @DisplayName("POST /auth/signup - 성공 시 201 과 생성된 회원 정보 반환, 로그인 회원을 요청자로 전달하고 토큰은 발급하지 않음")
     void signup_success() throws Exception {
         // given
-        given(jwtUtil.createAccessToken("tester")).willReturn("test-token");
+        UserResponse response = new UserResponse(2L, "tester", "tester@test.com", AffiliationType.COMPANY, 1L, "slack-1");
+        given(userService.signup(any(SignUpRequestDto.class), same(loginUser))).willReturn(response);
 
         // when & then
         signup(VALID_BODY)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.access_token").value("test-token"));
-        then(userService).should().signup(any(SignUpRequestDto.class));
+                .andExpect(jsonPath("$.id").value(2L))
+                .andExpect(jsonPath("$.username").value("tester"))
+                .andExpect(jsonPath("$.access_token").doesNotExist());
+        then(jwtUtil).should(never()).createAccessToken(anyString());
+    }
+
+    @Test
+    @DisplayName("POST /auth/signup - MASTER 가 아니거나 소속이 다르면 403 USER_ACCESS_DENIED")
+    void signup_accessDenied() throws Exception {
+        willThrow(new BaseException(ErrorCode.USER_ACCESS_DENIED)).given(userService).signup(any(), any());
+
+        signup(VALID_BODY)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("USER_ACCESS_DENIED"));
     }
 
     @Test
     @DisplayName("POST /auth/signup - username 중복이면 409 USER_ALREADY_EXISTS")
     void signup_duplicateUsername() throws Exception {
-        willThrow(new BaseException(ErrorCode.USER_ALREADY_EXISTS)).given(userService).signup(any());
+        willThrow(new BaseException(ErrorCode.USER_ALREADY_EXISTS)).given(userService).signup(any(), any());
 
         signup(VALID_BODY)
                 .andExpect(status().isConflict())
@@ -99,7 +135,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("POST /auth/signup - email 중복이면 409 EMAIL_ALREADY_EXISTS")
     void signup_duplicateEmail() throws Exception {
-        willThrow(new BaseException(ErrorCode.EMAIL_ALREADY_EXISTS)).given(userService).signup(any());
+        willThrow(new BaseException(ErrorCode.EMAIL_ALREADY_EXISTS)).given(userService).signup(any(), any());
 
         signup(VALID_BODY)
                 .andExpect(status().isConflict())
@@ -109,7 +145,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("POST /auth/signup - slackId 중복이면 409 SLACK_ID_ALREADY_EXISTS")
     void signup_duplicateSlackId() throws Exception {
-        willThrow(new BaseException(ErrorCode.SLACK_ID_ALREADY_EXISTS)).given(userService).signup(any());
+        willThrow(new BaseException(ErrorCode.SLACK_ID_ALREADY_EXISTS)).given(userService).signup(any(), any());
 
         signup(VALID_BODY)
                 .andExpect(status().isConflict())
@@ -119,7 +155,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("POST /auth/signup - DB 제약 조건 위반이면 409 DUPLICATE_RESOURCE")
     void signup_dataIntegrityViolation() throws Exception {
-        willThrow(new DataIntegrityViolationException("duplicate key")).given(userService).signup(any());
+        willThrow(new DataIntegrityViolationException("duplicate key")).given(userService).signup(any(), any());
 
         signup(VALID_BODY)
                 .andExpect(status().isConflict())
@@ -143,7 +179,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.message").value(containsString("affiliationType")))
                 .andExpect(jsonPath("$.message").value(containsString("affiliationId")))
                 .andExpect(jsonPath("$.message").value(containsString("slackId")));
-        then(userService).should(never()).signup(any());
+        then(userService).should(never()).signup(any(), any());
     }
 
     @Test
@@ -158,7 +194,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.message").value(containsString("username")))
                 .andExpect(jsonPath("$.message").value(containsString("email")));
-        then(userService).should(never()).signup(any());
+        then(userService).should(never()).signup(any(), any());
     }
 
     @Test
@@ -167,7 +203,7 @@ class AuthControllerTest {
         signup("{ invalid json")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
-        then(userService).should(never()).signup(any());
+        then(userService).should(never()).signup(any(), any());
     }
 
     // ===== POST /auth/login =====

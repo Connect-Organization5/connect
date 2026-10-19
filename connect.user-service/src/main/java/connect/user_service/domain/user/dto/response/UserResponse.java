@@ -6,7 +6,6 @@ import connect.user_service.domain.user.entity.User;
 public record UserResponse (
     Long id,
     String username,
-    String password,
     String email,
     AffiliationType affiliationType,
     Long affiliationId,
@@ -17,7 +16,6 @@ public record UserResponse (
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
-                user.getPassword(),
                 user.getEmail(),
                 user.getAffiliationType(),
                 user.getAffiliationId(),

@@ -17,7 +17,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -27,21 +26,23 @@ import java.util.Objects;
 public class UserService {
 
     private static final UserRole ROLE_MASTER = UserRole.MASTER;
-    // 소속별로 처음 가입한 이 인원까지 MASTER 권한 부여
-    private static final int MASTER_LIMIT = 5;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final AffiliationCounterService affiliationCounterService;
-    private final TransactionTemplate transactionTemplate;
 
-    // 메서드 전체를 하나의 트랜잭션으로 묶지 않음:
-    // 소속 카운터 생성(자체 트랜잭션)이 회원가입 트랜잭션보다 먼저 끝나야 한 요청이 커넥션을 동시에 2개 잡지 않음
-    public void signup(SignUpRequestDto requestDto) {
+    // 회원 생성 (MASTER 만 가능, 요청자와 같은 소속의 회원만 생성 가능)
+    @Transactional
+    public UserResponse signup(SignUpRequestDto requestDto, User requester) {
+        // 1. 권한 확인 (중복 확인 전에 거부해서 username, email, slackId 의 존재 여부를 노출하지 않음)
+        validateMaster(requester);
+
+        // 2. 소속 확인
+        validateSameAffiliation(requester, requestDto.getAffiliationType(), requestDto.getAffiliationId());
+
         String username = requestDto.getUsername();
         String email = requestDto.getEmail();
 
-        // 회원 중복 확인
+        // 3. 회원 중복 확인
         if (userRepository.existsByUsername(username)) {
             throw new BaseException(ErrorCode.USER_ALREADY_EXISTS);
         }
@@ -57,30 +58,13 @@ public class UserService {
         }
 
         // 중복 확인을 통과한 경우에만 비밀번호 암호화
-        // (소속 카운터 잠금을 짧게 유지하려고 잠금 전에 암호화)
         String password = passwordEncoder.encode(requestDto.getPassword());
 
-        AffiliationType affiliationType = requestDto.getAffiliationType();
-        Long affiliationId = requestDto.getAffiliationId();
+        // 4. 사용자 등록 (createdBy 는 JPA Auditing 이 요청자 id 로 기록)
+        User user = new User(username, password, email, UserRole.USER, requestDto.getAffiliationType(), requestDto.getAffiliationId(), requestDto.getSlackId());
+        userRepository.save(user);
 
-        // 소속의 첫 가입이면 소속 카운터 생성
-        affiliationCounterService.ensureCounter(affiliationType, affiliationId);
-
-        // 권한 부여와 사용자 등록은 한 트랜잭션 (등록이 실패하면 가입 순서 증가도 롤백)
-        transactionTemplate.executeWithoutResult(status -> {
-            // 유저 권한 부여: 같은 소속(affiliationType + affiliationId)에서 처음 가입한 5명은 MASTER, 이후는 USER
-            UserRole role = determineRole(affiliationType, affiliationId);
-
-            // 사용자 등록
-            User user = new User(username, password, email, role, affiliationType, affiliationId, requestDto.getSlackId());
-            userRepository.save(user);
-        });
-    }
-
-    // 소속별 가입 순서로 권한 결정 (삭제된 회원도 순서에 포함, 동시 가입은 소속 카운터 행 잠금으로 한 명씩 처리)
-    private UserRole determineRole(AffiliationType affiliationType, Long affiliationId) {
-        long signupOrder = affiliationCounterService.increaseAndGet(affiliationType, affiliationId);
-        return signupOrder <= MASTER_LIMIT ? UserRole.MASTER : UserRole.USER;
+        return UserResponse.from(user);
     }
 
     // 아이디가 없거나 비밀번호가 틀려도 같은 에러를 반환해서 아이디 존재 여부를 노출하지 않음
@@ -143,7 +127,12 @@ public class UserService {
         // 3. 소속 확인
         validateSameAffiliation(requester, user);
 
-        // 4. 자기 자신을 제외한 email, slackId 중복 확인
+        // 4. 소속의 마지막 MASTER 는 USER 로 강등 불가 (강등하면 그 소속에서 회원을 관리할 수 없음)
+        if (requestDto.getRole() != ROLE_MASTER && isLastMaster(user)) {
+            throw new BaseException(ErrorCode.LAST_MASTER_CANNOT_BE_DEMOTED);
+        }
+
+        // 5. 자기 자신을 제외한 email, slackId 중복 확인
         if (userRepository.existsByEmailAndIdNot(requestDto.getEmail(), userId)) {
             throw new BaseException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
@@ -151,14 +140,12 @@ public class UserService {
             throw new BaseException(ErrorCode.SLACK_ID_ALREADY_EXISTS);
         }
 
-        // 5. 수정 (updatedAt, updatedBy 는 JPA Auditing 이 기록)
+        // 6. 수정 (updatedAt, updatedBy 는 JPA Auditing 이 기록)
         user.update(
                 requestDto.getEmail(),
                 passwordEncoder.encode(requestDto.getPassword()),
                 requestDto.getSlackId(),
-                requestDto.getRole(),
-                requestDto.getAffiliationType(),
-                requestDto.getAffiliationId()
+                requestDto.getRole()
         );
 
         return UserResponse.from(user);
@@ -177,7 +164,12 @@ public class UserService {
         // 3. 소속 확인
         validateSameAffiliation(requester, user);
 
-        // 4. 논리적 삭제 (updatedAt, updatedBy 는 변경하지 않음)
+        // 4. 소속의 마지막 MASTER 는 삭제 불가 (삭제하면 그 소속에서 회원을 관리할 수 없음)
+        if (isLastMaster(user)) {
+            throw new BaseException(ErrorCode.LAST_MASTER_CANNOT_BE_DELETED);
+        }
+
+        // 5. 논리적 삭제 (updatedAt, updatedBy 는 변경하지 않음)
         int deleted = userRepository.softDeleteById(userId, requester.getId(), LocalDateTime.now());
         if (deleted == 0) {
             // 조회 이후 다른 요청이 먼저 삭제한 경우
@@ -191,10 +183,24 @@ public class UserService {
         }
     }
 
+    // 대상이 MASTER 이고 같은 소속에 다른 MASTER 가 없으면 true (대상이 USER 면 MASTER 를 조회하지 않음)
+    // 소속의 MASTER 행을 잠그고 세므로, 같은 소속 MASTER 를 동시에 삭제/강등해도 둘 다 통과하지 않음
+    // (잠금은 호출한 @Transactional 메서드가 끝날 때 풀림)
+    private boolean isLastMaster(User target) {
+        return target.getRole() == ROLE_MASTER
+                && userRepository.findAllByAffiliationAndRoleForUpdate(
+                        target.getAffiliationType(), target.getAffiliationId(), ROLE_MASTER).size() <= 1;
+    }
+
     // affiliationId 는 Long 이므로 == 가 아닌 equals 로 비교
     private void validateSameAffiliation(User requester, User target) {
-        if (!Objects.equals(requester.getAffiliationType(), target.getAffiliationType())
-                || !Objects.equals(requester.getAffiliationId(), target.getAffiliationId())) {
+        validateSameAffiliation(requester, target.getAffiliationType(), target.getAffiliationId());
+    }
+
+    // 회원 생성처럼 대상 회원이 아직 없을 때는 요청 값의 소속으로 비교
+    private void validateSameAffiliation(User requester, AffiliationType affiliationType, Long affiliationId) {
+        if (!Objects.equals(requester.getAffiliationType(), affiliationType)
+                || !Objects.equals(requester.getAffiliationId(), affiliationId)) {
             throw new BaseException(ErrorCode.USER_ACCESS_DENIED);
         }
     }

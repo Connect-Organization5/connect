@@ -83,7 +83,7 @@ class UserControllerTest {
     @DisplayName("GET /users/{userId} - 회원 단건 조회 성공, 로그인 회원을 요청자로 전달")
     void getUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(1L, "tester", "encodedPw", "tester@test.com", AffiliationType.COMPANY, 1L, "slack-1");
+        UserResponse response = new UserResponse(1L, "tester", "tester@test.com", AffiliationType.COMPANY, 1L, "slack-1");
         given(userService.getUser(eq(1L), same(loginUser))).willReturn(response);
 
         // when & then
@@ -138,9 +138,7 @@ class UserControllerTest {
               "email": "new@test.com",
               "password": "newPassword1!",
               "slackId": "new-slack",
-              "role": "MASTER",
-              "affiliationType": "HUB",
-              "affiliationId": 2000
+              "role": "MASTER"
             }
             """;
 
@@ -154,7 +152,7 @@ class UserControllerTest {
     @DisplayName("PUT /users/{userId} - 성공 시 200 과 수정된 회원 정보, 로그인 회원을 요청자로 전달")
     void updateUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(2L, "tester", "newEncodedPw", "new@test.com", AffiliationType.HUB, 2000L, "new-slack");
+        UserResponse response = new UserResponse(2L, "tester", "new@test.com", AffiliationType.COMPANY, 1000L, "new-slack");
         given(userService.updateUser(eq(2L), any(UpdateUserRequestDto.class), same(loginUser))).willReturn(response);
 
         // when & then
@@ -162,9 +160,10 @@ class UserControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(2L))
                 .andExpect(jsonPath("$.email").value("new@test.com"))
-                .andExpect(jsonPath("$.affiliationType").value("HUB"))
-                .andExpect(jsonPath("$.affiliationId").value(2000L))
-                .andExpect(jsonPath("$.slackId").value("new-slack"));
+                .andExpect(jsonPath("$.affiliationType").value("COMPANY"))
+                .andExpect(jsonPath("$.affiliationId").value(1000L))
+                .andExpect(jsonPath("$.slackId").value("new-slack"))
+                .andExpect(jsonPath("$.password").doesNotExist());
     }
 
     @Test
@@ -203,9 +202,21 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.message").value(containsString("password")))
                 .andExpect(jsonPath("$.message").value(containsString("slackId")))
-                .andExpect(jsonPath("$.message").value(containsString("role")))
-                .andExpect(jsonPath("$.message").value(containsString("affiliationType")))
-                .andExpect(jsonPath("$.message").value(containsString("affiliationId")));
+                .andExpect(jsonPath("$.message").value(containsString("role")));
+        then(userService).should(never()).updateUser(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("PUT /users/{userId} - 소속을 보내면 무시하지 않고 400 VALIDATION_FAILED")
+    void updateUser_affiliationNotAllowed() throws Exception {
+        String body = VALID_UPDATE_BODY.replace("\"role\": \"MASTER\"",
+                "\"role\": \"MASTER\", \"affiliationType\": \"HUB\", \"affiliationId\": 2000");
+
+        update(2L, body)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").value(containsString("affiliationType: 소속은 변경할 수 없습니다.")))
+                .andExpect(jsonPath("$.message").value(containsString("affiliationId: 소속은 변경할 수 없습니다.")));
         then(userService).should(never()).updateUser(any(), any(), any());
     }
 
@@ -225,8 +236,8 @@ class UserControllerTest {
     void getAllUsers_success() throws Exception {
         // given
         PageResponse<UserResponse> response = new PageResponse<>(
-                List.of(new UserResponse(1L, "master", "encodedPw", "master@test.com", AffiliationType.COMPANY, 1000L, "slack-master"),
-                        new UserResponse(2L, "tester", "encodedPw", "tester@test.com", AffiliationType.COMPANY, 1000L, "slack-1")),
+                List.of(new UserResponse(1L, "master", "master@test.com", AffiliationType.COMPANY, 1000L, "slack-master"),
+                        new UserResponse(2L, "tester", "tester@test.com", AffiliationType.COMPANY, 1000L, "slack-1")),
                 1, 2, 5, 3);
         given(userService.getAllUsers(same(loginUser), eq(1), eq(2))).willReturn(response);
 
