@@ -38,7 +38,7 @@ public class AuthController {
         // 아이디, 비밀번호 확인
         User user = userService.login(requestDto);
         // 확인된 회원 정보로 토큰 생성 후 return
-        return ResponseEntity.ok(new AuthResponse(jwtUtil.createAccessToken(user.getUsername())));
+        return ResponseEntity.ok(new AuthResponse(jwtUtil.createAccessToken(user)));
     }
 
     @Data
