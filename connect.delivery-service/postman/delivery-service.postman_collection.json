@@ -1,0 +1,404 @@
+{
+  "info": {
+    "name": "delivery-service",
+    "description": "배송 서비스 테스트용 컬렉션. 위에서부터 순서대로 실행하세요. 배송 생성 시 deliveryId 가 자동으로 저장됩니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8085" },
+    { "key": "ordererId", "value": "11111111-1111-1111-1111-111111111111", "description": "주문자" },
+    { "key": "deliveryUserId", "value": "22222222-2222-2222-2222-222222222222", "description": "배송 담당자" },
+    { "key": "newDeliveryUserId", "value": "44444444-4444-4444-4444-444444444444", "description": "변경할 담당자" },
+    { "key": "otherUserId", "value": "33333333-3333-3333-3333-333333333333", "description": "관련 없는 사용자" },
+    { "key": "masterId", "value": "99999999-9999-9999-9999-999999999999", "description": "MASTER" },
+    { "key": "departureHubId", "value": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" },
+    { "key": "arrivalHubId", "value": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" },
+    { "key": "orderId", "value": "" },
+    { "key": "deliveryId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. 정상 흐름",
+      "item": [
+        {
+          "name": "1-1 배송 생성",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [
+                "// 실행할 때마다 새 주문 id 생성 (orderId 는 unique)",
+                "pm.collectionVariables.set('orderId', pm.variables.replaceIn('{{$guid}}'));"
+              ] }
+            },
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                "const body = pm.response.json();",
+                "pm.collectionVariables.set('deliveryId', body.id);",
+                "pm.test('상태 HUB_WAITING', () => pm.expect(body.deliveryStatus).to.eql('HUB_WAITING'));"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "{{baseUrl}}/deliveries",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"ordererId\": \"{{ordererId}}\",\n  \"deliveryUserId\": \"{{deliveryUserId}}\",\n  \"departureHubId\": \"{{departureHubId}}\",\n  \"arrivalHubId\": \"{{arrivalHubId}}\",\n  \"deliveryAddress\": \"서울시 강남구 테헤란로 123\",\n  \"receiver\": \"홍길동\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1-2 배송 생성 (같은 주문 재요청 -> 기존 배송 반환)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test('같은 배송 id 반환', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('deliveryId')));"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "{{baseUrl}}/deliveries",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"ordererId\": \"{{ordererId}}\",\n  \"deliveryUserId\": \"{{deliveryUserId}}\",\n  \"departureHubId\": \"{{departureHubId}}\",\n  \"arrivalHubId\": \"{{arrivalHubId}}\",\n  \"deliveryAddress\": \"서울시 강남구 테헤란로 123\",\n  \"receiver\": \"홍길동\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1-3 단건 조회 (주문자)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{ordererId}}" },
+              { "key": "X-User-Role", "value": "USER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}"
+          }
+        },
+        {
+          "name": "1-4 수령인 변경 (주문자)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test('수령인 변경됨', () => pm.expect(pm.response.json().receiver).to.eql('김철수'));"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-User-Id", "value": "{{ordererId}}" },
+              { "key": "X-User-Role", "value": "USER" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/receiver",
+            "body": { "mode": "raw", "raw": "{\n  \"receiver\": \"김철수\"\n}" }
+          }
+        },
+        {
+          "name": "1-5 담당자 변경 (MASTER)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test('담당자 변경됨', () => pm.expect(pm.response.json().deliveryUserId).to.eql(pm.collectionVariables.get('newDeliveryUserId')));",
+                "// 이후 상태 변경은 새 담당자로 진행",
+                "pm.collectionVariables.set('deliveryUserId', pm.collectionVariables.get('newDeliveryUserId'));"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-User-Role", "value": "MASTER" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/delivery-user",
+            "body": { "mode": "raw", "raw": "{\n  \"deliveryUserId\": \"{{newDeliveryUserId}}\"\n}" }
+          }
+        },
+        {
+          "name": "1-6 허브 출발 (담당자)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-User-Id", "value": "{{deliveryUserId}}" } ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/hub-departure"
+          }
+        },
+        {
+          "name": "1-7 배송 경로 조회 (담당자) -> MOVING",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{deliveryUserId}}" },
+              { "key": "X-User-Role", "value": "USER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/route"
+          }
+        },
+        {
+          "name": "1-8 목적지 허브 도착 (담당자)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-User-Id", "value": "{{deliveryUserId}}" } ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/hub-arrival"
+          }
+        },
+        {
+          "name": "1-9 업체 배송 시작 (담당자)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-User-Id", "value": "{{deliveryUserId}}" } ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/delivery-start"
+          }
+        },
+        {
+          "name": "1-10 배송 완료 (담당자)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-User-Id", "value": "{{deliveryUserId}}" } ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/complete"
+          }
+        },
+        {
+          "name": "1-11 배송 경로 조회 (주문자) -> ARRIVED, 실제 거리/시간",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{ordererId}}" },
+              { "key": "X-User-Role", "value": "USER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/route"
+          }
+        },
+        {
+          "name": "1-12 목록 조회 (업체 소속, 완료된 배송)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{ordererId}}" },
+              { "key": "X-User-affiliationType", "value": "COMPANY" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/deliveries?status=DELIVERED&page=0&size=10&sort=createdAt,desc",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "deliveries" ],
+              "query": [
+                { "key": "status", "value": "DELIVERED" },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "10" },
+                { "key": "sort", "value": "createdAt,desc" },
+                { "key": "receiver", "value": "김", "disabled": true },
+                { "key": "departureHubId", "value": "{{departureHubId}}", "disabled": true },
+                { "key": "arrivalHubId", "value": "{{arrivalHubId}}", "disabled": true },
+                { "key": "deliveryUserId", "value": "{{deliveryUserId}}", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "1-13 목록 조회 (허브 소속 담당자 -> 본인 담당만)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{deliveryUserId}}" },
+              { "key": "X-User-affiliationType", "value": "HUB" }
+            ],
+            "url": "{{baseUrl}}/deliveries?page=0&size=10"
+          }
+        },
+        {
+          "name": "1-14 배송 삭제 (주문자, 완료된 배송)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-User-Id", "value": "{{ordererId}}" },
+              { "key": "X-User-Role", "value": "USER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. 취소 흐름",
+      "item": [
+        {
+          "name": "2-1 배송 생성",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.collectionVariables.set('orderId', pm.variables.replaceIn('{{$guid}}'));",
+                "pm.collectionVariables.set('deliveryUserId', '22222222-2222-2222-2222-222222222222');"
+              ] }
+            },
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.collectionVariables.set('deliveryId', pm.response.json().id);"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "{{baseUrl}}/deliveries",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"ordererId\": \"{{ordererId}}\",\n  \"deliveryUserId\": \"{{deliveryUserId}}\",\n  \"departureHubId\": \"{{departureHubId}}\",\n  \"arrivalHubId\": \"{{arrivalHubId}}\",\n  \"deliveryAddress\": \"부산시 해운대구 센텀로 45\",\n  \"receiver\": \"이영희\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2-2 주문 취소 (order-service 가 호출)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deliveries/cancel?orderId={{orderId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "deliveries", "cancel" ],
+              "query": [ { "key": "orderId", "value": "{{orderId}}" } ]
+            }
+          }
+        },
+        {
+          "name": "2-3 주문 취소 재요청 (재시도해도 204)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deliveries/cancel?orderId={{orderId}}",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "deliveries", "cancel" ],
+              "query": [ { "key": "orderId", "value": "{{orderId}}" } ]
+            }
+          }
+        },
+        {
+          "name": "2-4 단건 조회 (MASTER) -> CANCELED",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{masterId}}" },
+              { "key": "X-User-Role", "value": "MASTER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}"
+          }
+        },
+        {
+          "name": "2-5 배송 삭제 (MASTER, 취소된 배송)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-User-Id", "value": "{{masterId}}" },
+              { "key": "X-User-Role", "value": "MASTER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. 실패 케이스 (공통 예외 적용 전에는 500)",
+      "item": [
+        {
+          "name": "3-1 배송 생성 (실패 케이스용)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.collectionVariables.set('orderId', pm.variables.replaceIn('{{$guid}}'));",
+                "pm.collectionVariables.set('deliveryUserId', '22222222-2222-2222-2222-222222222222');"
+              ] }
+            },
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.collectionVariables.set('deliveryId', pm.response.json().id);"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "{{baseUrl}}/deliveries",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"ordererId\": \"{{ordererId}}\",\n  \"deliveryUserId\": \"{{deliveryUserId}}\",\n  \"departureHubId\": \"{{departureHubId}}\",\n  \"arrivalHubId\": \"{{arrivalHubId}}\",\n  \"deliveryAddress\": \"대구시 중구 동성로 7\",\n  \"receiver\": \"박민수\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3-2 관련 없는 사용자가 단건 조회 -> 404 기대",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{otherUserId}}" },
+              { "key": "X-User-Role", "value": "USER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}"
+          }
+        },
+        {
+          "name": "3-3 담당자 아닌 사용자가 허브 출발 -> 404 기대",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-User-Id", "value": "{{otherUserId}}" } ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/hub-departure"
+          }
+        },
+        {
+          "name": "3-4 USER 가 담당자 변경 -> 403 기대",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-User-Role", "value": "USER" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/delivery-user",
+            "body": { "mode": "raw", "raw": "{\n  \"deliveryUserId\": \"{{otherUserId}}\"\n}" }
+          }
+        },
+        {
+          "name": "3-5 단계 건너뛰기 (대기 중에 완료 처리) -> 409 기대",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-User-Id", "value": "{{deliveryUserId}}" } ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}/complete"
+          }
+        },
+        {
+          "name": "3-6 진행 중인 배송 삭제 -> 409 기대",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "X-User-Id", "value": "{{ordererId}}" },
+              { "key": "X-User-Role", "value": "USER" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}"
+          }
+        },
+        {
+          "name": "3-7 role 헤더 오타 (master 소문자) -> 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "{{masterId}}" },
+              { "key": "X-User-Role", "value": "master" }
+            ],
+            "url": "{{baseUrl}}/deliveries/{{deliveryId}}"
+          }
+        }
+      ]
+    }
+  ]
+}
