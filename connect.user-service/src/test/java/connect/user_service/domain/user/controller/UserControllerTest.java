@@ -2,6 +2,7 @@ package connect.user_service.domain.user.controller;
 
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
 import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.service.UserService;
@@ -66,7 +67,7 @@ class UserControllerTest {
                 .build();
 
         // JwtAuthorizationFilter 가 하는 것처럼 로그인 회원을 SecurityContext 에 저장
-        loginUser = new User("master", "encodedPw", "master@test.com", UserRole.MASTER, "COMPANY", 1000L, "slack-master");
+        loginUser = new User("master", "encodedPw", "master@test.com", UserRole.MASTER, AffiliationType.COMPANY, 1000L, "slack-master");
         loginUser.setId(1L);
         UserDetailsImpl userDetails = new UserDetailsImpl(loginUser);
         SecurityContextHolder.getContext().setAuthentication(
@@ -82,7 +83,7 @@ class UserControllerTest {
     @DisplayName("GET /users/{userId} - 회원 단건 조회 성공, 로그인 회원을 요청자로 전달")
     void getUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(1L, "tester", "encodedPw", "tester@test.com", "COMPANY", 1L, "slack-1");
+        UserResponse response = new UserResponse(1L, "tester", "encodedPw", "tester@test.com", AffiliationType.COMPANY, 1L, "slack-1");
         given(userService.getUser(eq(1L), same(loginUser))).willReturn(response);
 
         // when & then
@@ -153,7 +154,7 @@ class UserControllerTest {
     @DisplayName("PUT /users/{userId} - 성공 시 200 과 수정된 회원 정보, 로그인 회원을 요청자로 전달")
     void updateUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(2L, "tester", "newEncodedPw", "new@test.com", "HUB", 2000L, "new-slack");
+        UserResponse response = new UserResponse(2L, "tester", "newEncodedPw", "new@test.com", AffiliationType.HUB, 2000L, "new-slack");
         given(userService.updateUser(eq(2L), any(UpdateUserRequestDto.class), same(loginUser))).willReturn(response);
 
         // when & then
@@ -224,8 +225,8 @@ class UserControllerTest {
     void getAllUsers_success() throws Exception {
         // given
         PageResponse<UserResponse> response = new PageResponse<>(
-                List.of(new UserResponse(1L, "master", "encodedPw", "master@test.com", "COMPANY", 1000L, "slack-master"),
-                        new UserResponse(2L, "tester", "encodedPw", "tester@test.com", "COMPANY", 1000L, "slack-1")),
+                List.of(new UserResponse(1L, "master", "encodedPw", "master@test.com", AffiliationType.COMPANY, 1000L, "slack-master"),
+                        new UserResponse(2L, "tester", "encodedPw", "tester@test.com", AffiliationType.COMPANY, 1000L, "slack-1")),
                 1, 2, 5, 3);
         given(userService.getAllUsers(same(loginUser), eq(1), eq(2))).willReturn(response);
 

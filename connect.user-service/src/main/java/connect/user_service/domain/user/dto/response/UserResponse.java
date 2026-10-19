@@ -1,5 +1,6 @@
 package connect.user_service.domain.user.dto.response;
 
+import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 
 public record UserResponse (
@@ -7,7 +8,7 @@ public record UserResponse (
     String username,
     String password,
     String email,
-    String affiliationType,
+    AffiliationType affiliationType,
     Long affiliationId,
     String slackId
     ){

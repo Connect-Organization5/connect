@@ -1,5 +1,6 @@
 package connect.user_service.global.security;
 
+import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.global.exception.ErrorCode;
@@ -70,7 +71,7 @@ class JwtAuthorizationFilterTest {
     @DisplayName("JwtUtil 이 발급한 유효한 토큰이면 SecurityContext 에 인증 정보 저장")
     void validToken_setsAuthentication() throws Exception {
         // given
-        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, "COMPANY", 1L, "slack-1");
+        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, AffiliationType.COMPANY, 1L, "slack-1");
         given(userDetailsService.loadUserByUsername("tester")).willReturn(new UserDetailsImpl(user));
         MockHttpServletRequest request = requestWithToken(createToken(secretKey, "tester", 60_000));
         MockFilterChain chain = new MockFilterChain();

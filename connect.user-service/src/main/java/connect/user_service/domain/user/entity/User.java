@@ -32,7 +32,8 @@ public class User extends TimeStamp {
     private UserRole role;
 
     @Column(nullable = false)
-    private String affiliationType;
+    @Enumerated(value = EnumType.STRING)
+    private AffiliationType affiliationType;
 
     @Column(nullable = false)
     private Long affiliationId;
@@ -40,7 +41,7 @@ public class User extends TimeStamp {
     @Column(nullable = false, unique = true)
     private String slackId;
 
-    public User(String username, String password, String email, UserRole role, String affiliationType, Long affiliationId, String slackId) {
+    public User(String username, String password, String email, UserRole role, AffiliationType affiliationType, Long affiliationId, String slackId) {
         this.username = username;
         this.password = password;
         this.email = email;
@@ -52,7 +53,7 @@ public class User extends TimeStamp {
 
     // 회원 정보 수정 (username 은 변경 불가, updatedAt/By 는 JPA Auditing 이 기록)
     public void update(String email, String encodedPassword, String slackId,
-                       UserRole role, String affiliationType, Long affiliationId) {
+                       UserRole role, AffiliationType affiliationType, Long affiliationId) {
         this.email = email;
         this.password = encodedPassword;
         this.slackId = slackId;

@@ -1,5 +1,6 @@
 package connect.user_service.domain.user.dto.request;
 
+import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.UserRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -27,8 +28,8 @@ public class UpdateUserRequestDto {
     @NotNull(message = "권한을 입력하셔야 합니다.")
     private UserRole role;
 
-    @NotBlank(message = "소속 유형을 입력하셔야 합니다.")
-    private String affiliationType;
+    @NotNull(message = "소속 유형을 입력하셔야 합니다. (COMPANY, HUB)")
+    private AffiliationType affiliationType;
 
     @NotNull(message = "소속 ID를 입력하셔야 합니다.")
     private Long affiliationId;

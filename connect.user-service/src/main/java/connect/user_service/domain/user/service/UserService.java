@@ -4,6 +4,7 @@ import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
 import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.repository.UserRepository;
@@ -16,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -25,11 +27,16 @@ import java.util.Objects;
 public class UserService {
 
     private static final UserRole ROLE_MASTER = UserRole.MASTER;
+    // 소속별로 처음 가입한 이 인원까지 MASTER 권한 부여
+    private static final int MASTER_LIMIT = 5;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AffiliationCounterService affiliationCounterService;
+    private final TransactionTemplate transactionTemplate;
 
-    @Transactional
+    // 메서드 전체를 하나의 트랜잭션으로 묶지 않음:
+    // 소속 카운터 생성(자체 트랜잭션)이 회원가입 트랜잭션보다 먼저 끝나야 한 요청이 커넥션을 동시에 2개 잡지 않음
     public void signup(SignUpRequestDto requestDto) {
         String username = requestDto.getUsername();
         String email = requestDto.getEmail();
@@ -50,13 +57,30 @@ public class UserService {
         }
 
         // 중복 확인을 통과한 경우에만 비밀번호 암호화
+        // (소속 카운터 잠금을 짧게 유지하려고 잠금 전에 암호화)
         String password = passwordEncoder.encode(requestDto.getPassword());
 
-        // 유저 권한 부여 by checking Company ppl
+        AffiliationType affiliationType = requestDto.getAffiliationType();
+        Long affiliationId = requestDto.getAffiliationId();
 
-        // 사용자 등록
-        User user = new User(username, password, email, UserRole.USER, requestDto.getAffiliationType(), requestDto.getAffiliationId(), requestDto.getSlackId());
-        userRepository.save(user);
+        // 소속의 첫 가입이면 소속 카운터 생성
+        affiliationCounterService.ensureCounter(affiliationType, affiliationId);
+
+        // 권한 부여와 사용자 등록은 한 트랜잭션 (등록이 실패하면 가입 순서 증가도 롤백)
+        transactionTemplate.executeWithoutResult(status -> {
+            // 유저 권한 부여: 같은 소속(affiliationType + affiliationId)에서 처음 가입한 5명은 MASTER, 이후는 USER
+            UserRole role = determineRole(affiliationType, affiliationId);
+
+            // 사용자 등록
+            User user = new User(username, password, email, role, affiliationType, affiliationId, requestDto.getSlackId());
+            userRepository.save(user);
+        });
+    }
+
+    // 소속별 가입 순서로 권한 결정 (삭제된 회원도 순서에 포함, 동시 가입은 소속 카운터 행 잠금으로 한 명씩 처리)
+    private UserRole determineRole(AffiliationType affiliationType, Long affiliationId) {
+        long signupOrder = affiliationCounterService.increaseAndGet(affiliationType, affiliationId);
+        return signupOrder <= MASTER_LIMIT ? UserRole.MASTER : UserRole.USER;
     }
 
     // 아이디가 없거나 비밀번호가 틀려도 같은 에러를 반환해서 아이디 존재 여부를 노출하지 않음

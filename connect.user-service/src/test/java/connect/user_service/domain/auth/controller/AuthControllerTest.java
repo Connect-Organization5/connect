@@ -3,6 +3,7 @@ package connect.user_service.domain.auth.controller;
 import connect.user_service.global.security.JwtUtil;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
+import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.service.UserService;
@@ -181,7 +182,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/login - 성공 시 200 과 DB 회원 정보로 만든 access_token 반환")
     void login_success() throws Exception {
         // given
-        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, "COMPANY", 1L, "slack-1");
+        User user = new User("tester", "encodedPw", "tester@test.com", UserRole.USER, AffiliationType.COMPANY, 1L, "slack-1");
         given(userService.login(any(LoginRequestDto.class))).willReturn(user);
         given(jwtUtil.createAccessToken("tester")).willReturn("test-token");
 

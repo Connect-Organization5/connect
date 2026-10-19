@@ -1,5 +1,6 @@
 package connect.user_service.domain.user.repository;
 
+import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import org.springframework.data.domain.Page;
@@ -30,10 +31,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
             "u.createdAt DESC NULLS LAST, u.id DESC",
             countQuery = "SELECT COUNT(u) FROM User u " +
                     "WHERE u.affiliationType = :affiliationType AND u.affiliationId = :affiliationId")
-    Page<User> findAllByAffiliation(@Param("affiliationType") String affiliationType,
+    Page<User> findAllByAffiliation(@Param("affiliationType") AffiliationType affiliationType,
                                     @Param("affiliationId") Long affiliationId,
                                     @Param("firstRole") UserRole firstRole,
                                     Pageable pageable);
+
+    // 같은 소속의 회원 수 (삭제된 회원 포함)
+    // 네이티브 쿼리는 @SQLRestriction 이 적용되지 않으므로 삭제된 회원도 셈 (소속 카운터의 시작값)
+    @Query(value = "SELECT COUNT(*) FROM users WHERE affiliation_type = :affiliationType AND affiliation_id = :affiliationId",
+            nativeQuery = true)
+    long countAllIncludingDeleted(@Param("affiliationType") String affiliationType,
+                                  @Param("affiliationId") Long affiliationId);
 
     // 논리적 삭제: deleted_at, deleted_by 만 변경 (JPA Auditing 을 거치지 않아 updated_at, updated_by 는 그대로)
     // 이미 삭제된 회원이면 0 반환
