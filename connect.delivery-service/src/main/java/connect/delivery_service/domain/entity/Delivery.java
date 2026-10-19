@@ -86,6 +86,7 @@ public class Delivery extends BaseEntity {
 
     // 담당자 배정
     public void assignDeliveryUserId(UUID deliveryUserId) {
+        validateDeliveryStatus(DeliveryStatus.HUB_WAITING);
         if (this.deliveryUserId != null){
             throw new IllegalStateException();
         }

@@ -1,5 +1,6 @@
 package connect.delivery_service.domain.service;
 
+import connect.delivery_service.client.AffiliationType;
 import connect.delivery_service.client.RoleType;
 import connect.delivery_service.domain.dto.CreateDeliveryRequest;
 import connect.delivery_service.domain.dto.DeliveryResponse;
@@ -57,8 +58,9 @@ class DeliveryServiceTest {
 
     @BeforeEach
     void setUp() {
-        delivery = Delivery.createDelivery(orderId, ordererId, deliveryUserId,
+        delivery = Delivery.createDelivery(orderId, ordererId,
                 UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+        delivery.assignDeliveryUserId(deliveryUserId);
         // id 는 DB 저장 시 생성되므로 테스트에서는 직접 넣어준다
         ReflectionTestUtils.setField(delivery, "id", deliveryId);
 
@@ -85,7 +87,6 @@ class DeliveryServiceTest {
             request = new CreateDeliveryRequest();
             ReflectionTestUtils.setField(request, "orderId", orderId);
             ReflectionTestUtils.setField(request, "ordererId", ordererId);
-            ReflectionTestUtils.setField(request, "deliveryUserId", deliveryUserId);
             ReflectionTestUtils.setField(request, "departureHubId", UUID.randomUUID());
             ReflectionTestUtils.setField(request, "arrivalHubId", UUID.randomUUID());
             ReflectionTestUtils.setField(request, "receiver", "홍길동");
@@ -107,7 +108,7 @@ class DeliveryServiceTest {
             verify(deliveryRouteRepository).save(routeCaptor.capture());
             DeliveryRoute savedRoute = routeCaptor.getValue();
             assertThat(savedRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.WAITING);
-            assertThat(savedRoute.getDeliveryUserId()).isEqualTo(deliveryUserId);
+            assertThat(savedRoute.getDeliveryUserId()).isNull();
         }
 
         @Test
@@ -332,6 +333,63 @@ class DeliveryServiceTest {
             assertThatThrownBy(() -> deliveryService.cancelByOrderId(orderId))
                     .isInstanceOf(IllegalStateException.class);
             verifyNoInteractions(deliveryRouteRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("담당자 배정")
+    class AssignDeliveryUserId {
+
+        @BeforeEach
+        void setUpUnassigned() {
+            // 담당자 배정 전 상태의 배송, 배송 경로
+            delivery = Delivery.createDelivery(orderId, ordererId,
+                    UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+            ReflectionTestUtils.setField(delivery, "id", deliveryId);
+            deliveryRoute = DeliveryRoute.createDeliveryRoute(deliveryId, null,
+                    delivery.getDepartureHubId(), delivery.getArrivalHubId(), BigDecimal.TEN, 30);
+        }
+
+        @Test
+        @DisplayName("요청한 본인이 배송, 배송 경로 담당자로 배정")
+        void assignSelf() {
+            givenDelivery();
+            givenDeliveryRoute();
+
+            DeliveryResponse response = deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.HUB);
+
+            assertThat(response.getDeliveryUserId()).isEqualTo(deliveryUserId);
+            assertThat(delivery.getDeliveryUserId()).isEqualTo(deliveryUserId);
+            assertThat(deliveryRoute.getDeliveryUserId()).isEqualTo(deliveryUserId);
+        }
+
+        @Test
+        @DisplayName("HUB 소속이 아니면 403, 조회도 하지 않음")
+        void notHubAffiliation() {
+            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.COMPANY))
+                    .isInstanceOf(ForbiddenException.class);
+            verifyNoInteractions(deliveryRepository, deliveryRouteRepository);
+        }
+
+        @Test
+        @DisplayName("이미 담당자가 있으면 배정 불가")
+        void alreadyAssigned() {
+            delivery.assignDeliveryUserId(deliveryUserId);
+            givenDelivery();
+
+            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, otherUserId, AffiliationType.HUB))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(delivery.getDeliveryUserId()).isEqualTo(deliveryUserId);
+        }
+
+        @Test
+        @DisplayName("허브 대기 상태가 아니면 배정 불가")
+        void notWaiting() {
+            delivery.cancel();
+            givenDelivery();
+
+            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.HUB))
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 

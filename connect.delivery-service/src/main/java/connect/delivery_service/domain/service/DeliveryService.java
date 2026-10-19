@@ -75,7 +75,7 @@ public class DeliveryService {
         DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId)
                 .orElseThrow(() -> new NotFoundException("404"));
 
-        boolean isRouteManager = deliveryRoute.getDeliveryUserId().equals(userId);
+        boolean isRouteManager = userId.equals(deliveryRoute.getDeliveryUserId());
         if (!(isRouteManager || role == RoleType.MASTER)) {
             Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("404"));
             if (!delivery.isOrderedBy(userId)) {
@@ -126,6 +126,19 @@ public class DeliveryService {
         });
     }
 
+    //배송 담당자 배정 (요청한 본인이 배정)
+    public DeliveryResponse assignDeliveryUserId(UUID deliveryId, UUID userId, AffiliationType affiliationType) {
+        if (affiliationType != AffiliationType.HUB) {
+            throw new ForbiddenException("403");
+        }
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        delivery.assignDeliveryUserId(userId);
+
+        DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new NotFoundException("404"));
+        deliveryRoute.assignDeliveryUserId(userId);
+
+        return DeliveryResponse.from(delivery);
+    }
 
     //배송 담당자 변경
     public DeliveryResponse changeDeliveryUserId(UUID deliveryId, RoleType role, UUID deliveryUserId) {

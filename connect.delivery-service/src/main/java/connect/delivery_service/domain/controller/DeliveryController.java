@@ -76,6 +76,14 @@ public class DeliveryController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{deliveryId}/delivery-user")
+    public ResponseEntity<DeliveryResponse> assignDeliveryUserId(
+            @PathVariable UUID deliveryId,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-affiliationType") AffiliationType affiliationType) {
+        return ResponseEntity.ok(deliveryService.assignDeliveryUserId(deliveryId, userId, affiliationType));
+    }
+
     @PatchMapping("/{deliveryId}/delivery-user")
     public ResponseEntity<DeliveryResponse> changeDeliveryUserId(
             @PathVariable UUID deliveryId,
@@ -102,7 +110,7 @@ public class DeliveryController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/routes/{deliveryId}/")
+    @GetMapping("/routes/{deliveryId}")
     public ResponseEntity<DeliveryRouteResponse> getDeliveryRoute(
             @PathVariable UUID deliveryId,
             @RequestHeader("X-User-Id") UUID userId,

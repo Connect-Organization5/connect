@@ -23,7 +23,6 @@ public class DeliveryRoute extends BaseEntity {
     @Column(nullable = false)
     private UUID deliveryId;
 
-    @Column(nullable = false)
     private UUID deliveryUserId;
 
     @Column(nullable = false)
@@ -79,6 +78,16 @@ public class DeliveryRoute extends BaseEntity {
         this.deliveryRouteStatus = DeliveryRouteStatus.CANCELED;
     }
 
+    // 담당자 배정
+    public void assignDeliveryUserId(UUID deliveryUserId) {
+        validateDeliveryRouteStatus(DeliveryRouteStatus.WAITING);
+        if (this.deliveryUserId != null){
+            throw new IllegalStateException();
+        }
+        this.deliveryUserId = deliveryUserId;
+    }
+
+    // 담당자 변경
     public void changeDeliveryUserId(UUID deliveryUserId) {
         validateDeliveryRouteStatus(DeliveryRouteStatus.WAITING);
         this.deliveryUserId = deliveryUserId;

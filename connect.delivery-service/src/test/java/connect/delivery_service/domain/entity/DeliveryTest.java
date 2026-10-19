@@ -19,8 +19,9 @@ class DeliveryTest {
 
     @BeforeEach
     void setUp() {
-        delivery = Delivery.createDelivery(UUID.randomUUID(), ordererId, deliveryUserId,
+        delivery = Delivery.createDelivery(UUID.randomUUID(), ordererId,
                 UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+        delivery.assignDeliveryUserId(deliveryUserId);
     }
 
     // ===== 원하는 상태까지 전이시키는 헬퍼 =====
