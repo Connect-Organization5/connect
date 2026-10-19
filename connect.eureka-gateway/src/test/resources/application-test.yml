@@ -1,0 +1,12 @@
+# 테스트 전용 설정 (@ActiveProfiles("test") 를 붙인 테스트에서 application.yml 위에 덮어씀)
+# - Eureka 등록 끔 → 테스트 서버가 실제 서비스 목록에 등록되지 않고, Eureka 서버 없이도 실행 가능
+# - 실제 JWT 키 대신 테스트 전용 키 사용
+
+eureka:
+  client:
+    enabled: false
+
+service:
+  jwt:
+    # 테스트 전용 키 (HS512 용 64바이트, Base64URL). 실제 서비스 키와 무관
+    secret-key: ve9pH-qVwKRgF9a9pgaQYMKDZzCFP8CafxhkcOd0AH8AyQwljrf_q7mHN-TFE9OzKEqnU_xLLu1NQOlcUnsKGQ
