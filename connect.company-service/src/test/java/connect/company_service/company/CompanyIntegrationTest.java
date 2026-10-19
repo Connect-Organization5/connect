@@ -67,16 +67,16 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
         return UUID.fromString(JsonPath.read(response, "$.data.id"));
     }
 
-    // USER(ownerId)가 직접 생성해 본인이 관리자인 업체
+    // MASTER가 생성한 뒤 USER(ownerId)가 가입하며 관리자로 지정된 업체
     private UUID createOwnedCompany(String name, String address) throws Exception {
-        String response = mockMvc.perform(post("/companies")
-                        .header("X-User-Id", ownerId)
-                        .header("X-User-Role", ROLE_USER)
+        UUID companyId = createCompany(name, address);
+        mockMvc.perform(patch("/internal/companies/{companyId}/manager", companyId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(hubId, name, address)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return UUID.fromString(JsonPath.read(response, "$.data.id"));
+                        .content("""
+                                {"userId": "%s"}
+                                """.formatted(ownerId)))
+                .andExpect(status().isOk());
+        return companyId;
     }
 
     private ResultActions requestDelete(UUID companyId, UUID userId, String role) throws Exception {
@@ -111,11 +111,17 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
         }
 
         @Test
-        @DisplayName("USER가 생성하면 본인이 관리자(userId)로 저장된다")
+        @DisplayName("USER가 생성하면 403 COMPANY_ACCESS_DENIED를 반환하고 저장하지 않는다")
         void createByUser() throws Exception {
-            UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
+            mockMvc.perform(post("/companies")
+                            .header("X-User-Id", ownerId)
+                            .header("X-User-Role", ROLE_USER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(hubId, "스파르타 물류", "서울시 강남구")))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("COMPANY_ACCESS_DENIED"));
 
-            assertThat(findCompany(companyId).getUserId()).isEqualTo(ownerId);
+            assertThat(companyRepository.count()).isZero();
         }
 
         @Test

@@ -33,14 +33,15 @@ public class CompanyController {
 
     private final CompanyService companyService;
 
-    // 업체 생성
+    // 업체 생성 (MASTER만 가능)
+    // X-User-Id는 서비스 로직에서 쓰지 않지만 createdBy 기록(JpaAuditingConfig)에 필요해서 필수로 받는다
     @PostMapping
     public ResponseEntity<ApiResponse<CompanyResponse>> createCompany(
             @RequestHeader(USER_ID_HEADER) UUID userId,
             @RequestHeader(USER_ROLE_HEADER) String userRole,
             @Valid @RequestBody CreateCompanyRequest request) {
 
-        CompanyResponse response = companyService.createCompany(userId, userRole, request);
+        CompanyResponse response = companyService.createCompany(userRole, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("업체가 생성되었습니다.", response));
     }
