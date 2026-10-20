@@ -28,6 +28,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import connect.delivery_service.global.dto.PagedResponse;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -449,10 +453,23 @@ class DeliveryServiceTest {
             givenDelivery();
             givenDeliveryRoute();
 
-            deliveryService.startHubMoving(deliveryId, deliveryUserId);
+            deliveryService.startHubMoving(deliveryId, deliveryUserId, RoleType.USER);
 
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_MOVING);
             assertThat(deliveryRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.MOVING);
+        }
+
+        @Test
+        @DisplayName("MASTER 는 담당자가 아니어도 상태 변경 가능")
+        void startHubMovingByMaster() {
+            givenDelivery();
+            givenDeliveryRoute();
+
+            deliveryService.startHubMoving(deliveryId, otherUserId, RoleType.MASTER);
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_MOVING);
+            assertThat(deliveryRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.MOVING);
+            assertThat(deliveryRoute.getDepartedAt()).isNotNull();
         }
 
         @Test
@@ -460,7 +477,7 @@ class DeliveryServiceTest {
         void startHubMovingByOther() {
             givenDelivery();
 
-            assertThatThrownBy(() -> deliveryService.startHubMoving(deliveryId, otherUserId))
+            assertThatThrownBy(() -> deliveryService.startHubMoving(deliveryId, otherUserId, RoleType.USER))
                     .isInstanceOf(BaseException.class)
                     .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_NOT_FOUND);
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_WAITING);
@@ -473,7 +490,7 @@ class DeliveryServiceTest {
             givenDelivery();
             given(deliveryRouteRepository.findByDeliveryId(deliveryId)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> deliveryService.startHubMoving(deliveryId, deliveryUserId))
+            assertThatThrownBy(() -> deliveryService.startHubMoving(deliveryId, deliveryUserId, RoleType.USER))
                     .isInstanceOf(BaseException.class)
                     .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_ROUTE_NOT_FOUND);
         }
@@ -484,14 +501,15 @@ class DeliveryServiceTest {
             givenDelivery();
             givenDeliveryRoute();
             delivery.startHubMoving();
-            deliveryRoute.startMoving();
+            deliveryRoute.startMoving(LocalDateTime.now());
 
-            deliveryService.arriveAtDestinationHub(deliveryId, deliveryUserId);
+            deliveryService.arriveAtDestinationHub(deliveryId, deliveryUserId, RoleType.USER, new BigDecimal("123.45"));
 
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.DEST_HUB_ARRIVED);
             assertThat(deliveryRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.ARRIVED);
-            assertThat(deliveryRoute.getActualDistance()).isNotNull();
-            assertThat(deliveryRoute.getActualDuration()).isNotNull();
+            // 실제 이동거리는 입력값, 소요시간은 방금 출발했으므로 0분
+            assertThat(deliveryRoute.getActualDistance()).isEqualByComparingTo("123.45");
+            assertThat(deliveryRoute.getActualDuration()).isZero();
         }
 
         @Test
@@ -501,10 +519,10 @@ class DeliveryServiceTest {
             delivery.startHubMoving();
             delivery.arrivedHub();
 
-            deliveryService.startDelivery(deliveryId, deliveryUserId);
+            deliveryService.startDelivery(deliveryId, deliveryUserId, RoleType.USER);
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.OUT_FOR_DELIVERY);
 
-            deliveryService.completeDelivery(deliveryId, deliveryUserId);
+            deliveryService.completeDelivery(deliveryId, deliveryUserId, RoleType.USER);
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
         }
     }
@@ -574,13 +592,18 @@ class DeliveryServiceTest {
                     delivery.getDepartureHubId(), delivery.getArrivalHubId(), BigDecimal.TEN, 30);
         }
 
+        // 헤더로 받은 허브 id 는 엔티티 값과 다른 인스턴스 (== 비교 버그를 잡기 위해 새로 만든다)
+        private UUID departureHubIdFromHeader() {
+            return UUID.fromString(delivery.getDepartureHubId().toString());
+        }
+
         @Test
         @DisplayName("요청한 본인이 배송, 배송 경로 담당자로 배정")
         void assignSelf() {
             givenDelivery();
             givenDeliveryRoute();
 
-            DeliveryResponse response = deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.HUB);
+            DeliveryResponse response = deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, departureHubIdFromHeader(), AffiliationType.HUB);
 
             assertThat(response.getDeliveryUserId()).isEqualTo(deliveryUserId);
             assertThat(delivery.getDeliveryUserId()).isEqualTo(deliveryUserId);
@@ -590,10 +613,22 @@ class DeliveryServiceTest {
         @Test
         @DisplayName("HUB 소속이 아니면 403, 조회도 하지 않음")
         void notHubAffiliation() {
-            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.COMPANY))
+            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, UUID.randomUUID(), AffiliationType.COMPANY))
                     .isInstanceOf(BaseException.class)
                     .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_ACCESS_DENIED);
             verifyNoInteractions(deliveryRepository, deliveryRouteRepository);
+        }
+
+        @Test
+        @DisplayName("출발 허브 소속이 아니면 403, 배정하지 않음")
+        void otherHub() {
+            givenDelivery();
+
+            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, UUID.randomUUID(), AffiliationType.HUB))
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_HUB_MISMATCH);
+            assertThat(delivery.getDeliveryUserId()).isNull();
+            verifyNoInteractions(deliveryRouteRepository);
         }
 
         @Test
@@ -602,7 +637,7 @@ class DeliveryServiceTest {
             delivery.assignDeliveryUserId(deliveryUserId);
             givenDelivery();
 
-            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, otherUserId, AffiliationType.HUB))
+            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, otherUserId, departureHubIdFromHeader(), AffiliationType.HUB))
                     .isInstanceOf(BaseException.class)
                     .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_USER_ALREADY_ASSIGNED);
             assertThat(delivery.getDeliveryUserId()).isEqualTo(deliveryUserId);
@@ -614,9 +649,41 @@ class DeliveryServiceTest {
             delivery.cancel();
             givenDelivery();
 
-            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, AffiliationType.HUB))
+            assertThatThrownBy(() -> deliveryService.assignDeliveryUserId(deliveryId, deliveryUserId, departureHubIdFromHeader(), AffiliationType.HUB))
                     .isInstanceOf(BaseException.class)
                     .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
+        }
+    }
+
+    @Nested
+    @DisplayName("미배정 배송 목록 조회")
+    class GetUnassignedDeliveries {
+
+        private final UUID hubId = UUID.randomUUID();
+        private final Pageable pageable = PageRequest.of(0, 10);
+
+        @Test
+        @DisplayName("소속 허브에서 출발하는 HUB_WAITING 미배정 배송을 조회")
+        void byHubUser() {
+            Delivery unassigned = Delivery.createDelivery(orderId, ordererId, hubId, UUID.randomUUID(), "홍길동", "서울시 강남구");
+            given(deliveryRepository.findAllByDeliveryUserIdIsNullAndDeliveryStatusAndDepartureHubId(
+                    DeliveryStatus.HUB_WAITING, hubId, pageable))
+                    .willReturn(new PageImpl<>(List.of(unassigned), pageable, 1));
+
+            PagedResponse<DeliveryResponse> response = deliveryService.getUnassignedDeliveries(hubId, AffiliationType.HUB, pageable);
+
+            assertThat(response.totalElements()).isEqualTo(1);
+            assertThat(response.contents()).extracting(DeliveryResponse::getDeliveryUserId).containsOnlyNulls();
+            assertThat(response.contents()).extracting(DeliveryResponse::getDepartureHubId).containsOnly(hubId);
+        }
+
+        @Test
+        @DisplayName("HUB 소속이 아니면 403, 조회하지 않음")
+        void notHubAffiliation() {
+            assertThatThrownBy(() -> deliveryService.getUnassignedDeliveries(hubId, AffiliationType.COMPANY, pageable))
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_ACCESS_DENIED);
+            verifyNoInteractions(deliveryRepository);
         }
     }
 

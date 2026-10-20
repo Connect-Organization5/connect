@@ -40,36 +40,51 @@ public class DeliveryController implements DeliveryControllerDocs {
         return ResponseEntity.ok(ApiResponse.ok("배송 목록이 조회되었습니다.", response));
     }
 
+    // 담당자 미배정 배송 목록 조회
+    @GetMapping("/unassigned")
+    public ResponseEntity<ApiResponse<PagedResponse<DeliveryResponse>>> getUnassignedDeliveries(
+            @ModelAttribute DeliverySearchCondition cond,
+            @RequestHeader("X-User-Affiliation-Id") UUID affiliationId,
+            @RequestHeader("X-User-Affiliation-Type") AffiliationType affiliationType) {
+        PagedResponse<DeliveryResponse> response = deliveryService.getUnassignedDeliveries(affiliationId, affiliationType, cond.toPageable());
+        return ResponseEntity.ok(ApiResponse.ok("미배정 배송 목록이 조회되었습니다.", response));
+    }
+
     // 배송 상태 변경
     @PostMapping("/{deliveryId}/hub-departure")
     public ResponseEntity<ApiResponse<Void>> startHubMoving(
             @PathVariable UUID deliveryId,
-            @RequestHeader("X-User-Id") UUID userId) {
-        deliveryService.startHubMoving(deliveryId, userId);
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") RoleType role) {
+        deliveryService.startHubMoving(deliveryId, userId, role);
         return ResponseEntity.ok(ApiResponse.ok("허브 출발 처리되었습니다.", null));
     }
 
     @PostMapping("/{deliveryId}/hub-arrival")
     public ResponseEntity<ApiResponse<Void>> arriveAtDestinationHub(
             @PathVariable UUID deliveryId,
-            @RequestHeader("X-User-Id") UUID userId) {
-        deliveryService.arriveAtDestinationHub(deliveryId, userId);
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") RoleType role,
+            @Valid @RequestBody ArriveHubRequest request) {
+        deliveryService.arriveAtDestinationHub(deliveryId, userId, role, request.getActualDistance());
         return ResponseEntity.ok(ApiResponse.ok("허브 도착 처리되었습니다.", null));
     }
 
     @PostMapping("/{deliveryId}/delivery-start")
     public ResponseEntity<ApiResponse<Void>> startDelivery(
             @PathVariable UUID deliveryId,
-            @RequestHeader("X-User-Id") UUID userId) {
-        deliveryService.startDelivery(deliveryId, userId);
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") RoleType role) {
+        deliveryService.startDelivery(deliveryId, userId, role);
         return ResponseEntity.ok(ApiResponse.ok("배송 출발 처리되었습니다.", null));
     }
 
     @PostMapping("/{deliveryId}/complete")
     public ResponseEntity<ApiResponse<Void>> completeDelivery(
             @PathVariable UUID deliveryId,
-            @RequestHeader("X-User-Id") UUID userId) {
-        deliveryService.completeDelivery(deliveryId, userId);
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") RoleType role) {
+        deliveryService.completeDelivery(deliveryId, userId, role);
         return ResponseEntity.ok(ApiResponse.ok("배송 완료 처리되었습니다.", null));
     }
 
@@ -79,8 +94,9 @@ public class DeliveryController implements DeliveryControllerDocs {
     public ResponseEntity<ApiResponse<DeliveryResponse>> assignDeliveryUserId(
             @PathVariable UUID deliveryId,
             @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Affiliation-Id") UUID affiliationId,
             @RequestHeader("X-User-Affiliation-Type") AffiliationType affiliationType) {
-        DeliveryResponse response = deliveryService.assignDeliveryUserId(deliveryId, userId, affiliationType);
+        DeliveryResponse response = deliveryService.assignDeliveryUserId(deliveryId, userId, affiliationId, affiliationType);
         return ResponseEntity.ok(ApiResponse.ok("배송 담당자가 배정되었습니다.", response));
     }
 
