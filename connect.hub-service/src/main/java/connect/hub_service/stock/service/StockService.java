@@ -44,10 +44,6 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class StockService {
 
-    // Gateway가 검증해 전달한 X-User-Role 값. 재고 등록은 MASTER만 허용(잠정: SA 권한 매트릭스 기준,
-    // 업체 관리자의 본인 업체 상품 등록은 Company 연동 후 검토).
-    static final String MASTER = "MASTER";
-
     private static final Sort DEFAULT_SORT = Sort.by("createdAt").and(Sort.by("id"));
 
     private final StockRepository stockRepository;
@@ -56,17 +52,14 @@ public class StockService {
     private final EntityManager entityManager;
     private final CompanyValidator companyValidator;
 
+    // 재고 등록은 MASTER 또는 해당 업체의 관리자만 할 수 있다(권한 판단은 CompanyValidator).
     @Transactional
-    public StockResponse register(String role, StockCreateRequest request) {
-        if (!MASTER.equals(role)) {
-            throw new BaseException(ErrorCode.FORBIDDEN);
-        }
-
+    public StockResponse register(UUID userId, String role, StockCreateRequest request) {
         Hub hub = hubRepository.findById(request.hubId())
                 .orElseThrow(() -> new BaseException(ErrorCode.HUB_NOT_FOUND));
 
-        // 업체·상품이 실제로 있고 허브가 업체의 소속 허브인지 Company에 확인한다. 등록 시점에만 검증한다.
-        companyValidator.validateStockTarget(request.companyId(), hub.getId(), request.productId());
+        // 업체·상품이 실제로 있고, 요청자가 등록할 수 있으며, 허브가 업체의 소속 허브인지 Company에 확인한다. 등록 시점에만 검증한다.
+        companyValidator.validateStockTarget(request.companyId(), hub.getId(), request.productId(), userId, role);
 
         // 같은 재고가 있으면 수량을 덮어쓰거나 합산하지 않고 충돌 처리한다. (삭제된 재고 포함)
         if (stockRepository.existsByHubIdAndProductId(hub.getId(), request.productId())) {
@@ -87,14 +80,13 @@ public class StockService {
      * 멱등하지 않다: 응답 유실 후 같은 요청을 다시 보내면 수량이 중복 증가한다. 입고 이력은 남기지 않는다.
      */
     @Transactional
-    public StockResponse inbound(String role, StockInboundRequest request) {
-        if (!MASTER.equals(role)) {
-            throw new BaseException(ErrorCode.FORBIDDEN);
-        }
-
+    public StockResponse inbound(UUID userId, String role, StockInboundRequest request) {
         if (!hubRepository.existsById(request.hubId())) {
             throw new BaseException(ErrorCode.HUB_NOT_FOUND);
         }
+
+        // 등록과 같은 기준(MASTER 또는 업체 관리자, 소속 허브)으로 확인한다. Company 호출은 재고 행을 잠그기 전에 한다.
+        companyValidator.validateStockTarget(request.companyId(), request.hubId(), request.productId(), userId, role);
 
         // 삭제된 재고도 조회해 없음(404)과 삭제됨(409)을 구분한다.
         Stock stock = stockRepository.findByHubIdAndProductIdForUpdate(request.hubId(), request.productId())

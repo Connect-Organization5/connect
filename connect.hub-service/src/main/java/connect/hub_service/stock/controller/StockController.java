@@ -28,21 +28,24 @@ public class StockController {
 
     private final StockService stockService;
 
-    // X-User-Role은 Gateway가 JWT 검증 후 재설정한 값을 신뢰한다. 없으면 400(MISSING_HEADER).
+    // X-User-Id·X-User-Role은 Gateway가 JWT 검증 후 재설정한 값을 신뢰한다. 없으면 400(MISSING_HEADER).
+    // MASTER 또는 해당 업체의 관리자만 등록할 수 있다.
     @PostMapping
     public ResponseEntity<ApiResponse<StockResponse>> register(
+            @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role,
             @Valid @RequestBody StockCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("재고 등록 성공", stockService.register(role, request)));
+                .body(ApiResponse.ok("재고 등록 성공", stockService.register(userId, role, request)));
     }
 
-    // 재고 입고(수량 추가). 요청 본문의 hubId·productId로 기존 재고를 찾는다. 멱등하지 않으며 MASTER만 호출할 수 있다.
+    // 재고 입고(수량 추가). 요청 본문의 hubId·productId로 기존 재고를 찾는다. 멱등하지 않으며 MASTER 또는 해당 업체의 관리자만 호출할 수 있다.
     @PostMapping("/inbound")
     public ApiResponse<StockResponse> inbound(
+            @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role,
             @Valid @RequestBody StockInboundRequest request) {
-        return ApiResponse.ok("재고 입고 성공", stockService.inbound(role, request));
+        return ApiResponse.ok("재고 입고 성공", stockService.inbound(userId, role, request));
     }
 
     @GetMapping
