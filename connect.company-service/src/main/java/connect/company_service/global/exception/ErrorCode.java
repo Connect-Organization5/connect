@@ -19,12 +19,16 @@ public enum ErrorCode {
     COMPANY_ACCESS_DENIED(HttpStatus.FORBIDDEN, "업체에 대한 권한이 없습니다."),
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "업체를 찾을 수 없습니다."),
     COMPANY_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 존재하는 업체입니다."),
+    COMPANY_MANAGER_NOT_MEMBER(HttpStatus.BAD_REQUEST, "해당 업체 소속 사용자만 관리자로 지정할 수 있습니다."),
 
     // product
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다."),
 
     // hub
-    HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "허브를 찾을 수 없습니다.");
+    HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "허브를 찾을 수 없습니다."),
+
+    // user
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;
