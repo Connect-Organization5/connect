@@ -21,15 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -243,16 +235,6 @@ public class UserService {
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
         return UserResponse.from(user);
-    }
-
-    public Map<String,?> signup() {
-        Map<String,?> map = new HashMap<>();
-
-        // Company 목록 추가하기
-
-        // Hub 목록 추가하기
-
-        return map;
     }
 
     @Transactional(readOnly = true)
