@@ -28,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class UserServiceControllerIntegrationTest {
+class InternalUserControllerIntegrationTest {
 
     private static final String URL = "/internal/users/{userId}";
     private static final UUID AFFILIATION_ID = UUID.fromString("00000000-0000-0000-0000-000000001000");
@@ -68,6 +68,7 @@ class UserServiceControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.affiliationType").value("COMPANY"))
                 .andExpect(jsonPath("$.data.affiliationId").value(AFFILIATION_ID.toString()))
                 .andExpect(jsonPath("$.data.slackId").value("slack-1"))
+                .andExpect(jsonPath("$.data.createdAt").exists())
                 .andExpect(jsonPath("$.data.password").doesNotExist());
     }
 

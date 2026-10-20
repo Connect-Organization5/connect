@@ -29,7 +29,10 @@ public enum ErrorCode {
     LAST_MASTER_CANNOT_BE_DELETED(HttpStatus.CONFLICT, "소속의 마지막 MASTER 는 삭제할 수 없습니다."),
     LAST_MASTER_CANNOT_BE_DEMOTED(HttpStatus.CONFLICT, "소속의 마지막 MASTER 는 USER 로 변경할 수 없습니다."),
     DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "이미 존재하는 데이터입니다."),
-    LOCK_CONFLICT(HttpStatus.CONFLICT, "다른 요청이 처리 중입니다. 잠시 후 다시 시도해 주세요.");
+    LOCK_CONFLICT(HttpStatus.CONFLICT, "다른 요청이 처리 중입니다. 잠시 후 다시 시도해 주세요."),
+    HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "허브를 찾을 수 없습니다."),
+    COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "업체를 찾을 수 없습니다."),
+    AFFILIATION_ID_NOT_FOUND(HttpStatus.NOT_FOUND, "업체 or 허브를 찾을 수 없습니다");
 
     private final HttpStatus status;
     private final String message;

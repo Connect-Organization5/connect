@@ -1,6 +1,6 @@
 package connect.user_service.domain.user.controller;
 
-import connect.user_service.domain.user.dto.response.UpdateUserResponse;
+import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.exception.BaseException;
@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -27,23 +28,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
-class UserServiceControllerTest {
+class InternalUserControllerTest {
 
     private static final String URL = "/internal/users/{userId}";
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID AFFILIATION_ID = UUID.fromString("00000000-0000-0000-0000-000000001000");
+    private static final LocalDateTime CREATED_AT = LocalDateTime.of(2026, 1, 1, 9, 0);
 
     @Mock
     private UserService userService;
 
     @InjectMocks
-    private UserServiceController userServiceController;
+    private InternalUserController internalUserController;
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(userServiceController)
+        mockMvc = MockMvcBuilders.standaloneSetup(internalUserController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -52,7 +54,7 @@ class UserServiceControllerTest {
     @DisplayName("GET /internal/users/{userId} - userId 에 해당하는 회원 정보 반환, 비밀번호는 포함하지 않음")
     void sendUser_success() throws Exception {
         // given
-        UpdateUserResponse response = new UpdateUserResponse(USER_ID, "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1");
+        UserResponse response = new UserResponse(USER_ID, "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
         given(userService.sendUser(USER_ID)).willReturn(response);
 
         // when & then
@@ -66,6 +68,7 @@ class UserServiceControllerTest {
                 .andExpect(jsonPath("$.data.affiliationType").value("COMPANY"))
                 .andExpect(jsonPath("$.data.affiliationId").value(AFFILIATION_ID.toString()))
                 .andExpect(jsonPath("$.data.slackId").value("slack-1"))
+                .andExpect(jsonPath("$.data.createdAt").value("2026-01-01T09:00:00"))
                 .andExpect(jsonPath("$.data.password").doesNotExist());
     }
 
