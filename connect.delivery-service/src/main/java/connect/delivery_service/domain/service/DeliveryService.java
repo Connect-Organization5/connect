@@ -1,9 +1,10 @@
 package connect.delivery_service.domain.service;
 
-import connect.delivery_service.client.AffiliationType;
-import connect.delivery_service.client.HubClient;
-import connect.delivery_service.client.HubRouteResponse;
-import connect.delivery_service.client.RoleType;
+import connect.delivery_service.client.hub.HubClient;
+import connect.delivery_service.client.hub.HubRouteResponse;
+import connect.delivery_service.client.user.AffiliationType;
+import connect.delivery_service.client.user.RoleType;
+import connect.delivery_service.client.user.UserClient;
 import connect.delivery_service.domain.dto.CreateDeliveryRequest;
 import connect.delivery_service.domain.dto.DeliveryResponse;
 import connect.delivery_service.domain.dto.DeliveryRouteResponse;
@@ -12,6 +13,7 @@ import connect.delivery_service.domain.entity.Delivery;
 import connect.delivery_service.domain.entity.DeliveryRoute;
 import connect.delivery_service.domain.entity.DeliveryStatus;
 import connect.delivery_service.domain.repository.DeliveryRepository;
+import connect.delivery_service.domain.repository.DeliveryRepositoryCustomImpl;
 import connect.delivery_service.domain.repository.DeliveryRouteRepository;
 import connect.delivery_service.global.dto.ApiResponse;
 import connect.delivery_service.global.dto.PagedResponse;
@@ -19,15 +21,15 @@ import connect.delivery_service.global.exception.BaseException;
 import connect.delivery_service.global.exception.ErrorCode;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
-
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
+@Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -36,6 +38,7 @@ public class DeliveryService {
     private final DeliveryRepository deliveryRepository;
     private final DeliveryRouteRepository deliveryRouteRepository;
     private final HubClient hubClient;
+    private final UserClient userClient;
 
     //배송 생성
     public DeliveryResponse createDelivery(CreateDeliveryRequest request) {
@@ -45,7 +48,6 @@ public class DeliveryService {
             return DeliveryResponse.from(delivery.get());
         }
 
-        // 경로가 없으면 배송도 만들지 않도록 저장 전에 허브 경로를 먼저 조회한다
         HubRouteResponse hubRoute = getHubRoute(request.getDepartureHubId(), request.getArrivalHubId());
 
         Delivery createdDelivery = Delivery.createDelivery(request.getOrderId(), request.getOrdererId(), request.getDepartureHubId(), request.getArrivalHubId(), request.getReceiver(), request.getDeliveryAddress());
@@ -53,6 +55,8 @@ public class DeliveryService {
 
         DeliveryRoute createdDeliveryRoute = DeliveryRoute.createDeliveryRoute(createdDelivery.getId(), createdDelivery.getDeliveryUserId(), createdDelivery.getDepartureHubId(), createdDelivery.getArrivalHubId(), hubRoute.distance(), hubRoute.duration());
         deliveryRouteRepository.save(createdDeliveryRoute);
+
+        autoAssignDeliveryUserId(createdDelivery, createdDeliveryRoute);
 
         return DeliveryResponse.from(createdDelivery);
     }
@@ -131,20 +135,6 @@ public class DeliveryService {
         });
     }
 
-    // 배송 담당자 배정 (요청한 본인이 배정)
-    public DeliveryResponse assignDeliveryUserId(UUID deliveryId, UUID userId, AffiliationType affiliationType) {
-        if (affiliationType != AffiliationType.HUB) {
-            throw new BaseException(ErrorCode.DELIVERY_ACCESS_DENIED);
-        }
-        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
-        delivery.assignDeliveryUserId(userId);
-
-        DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
-        deliveryRoute.assignDeliveryUserId(userId);
-
-        return DeliveryResponse.from(delivery);
-    }
-
     // 배송 담당자 변경
     public DeliveryResponse changeDeliveryUserId(UUID deliveryId, RoleType role, UUID deliveryUserId) {
         if (role != RoleType.MASTER) {
@@ -175,6 +165,48 @@ public class DeliveryService {
                 .ifPresent(deliveryRoute -> deliveryRoute.delete(userId));
     }
 
+    // 배송 담당자 배정 (요청한 본인이 배정)
+    public DeliveryResponse assignDeliveryUserId(UUID deliveryId, UUID userId, AffiliationType affiliationType) {
+        if (affiliationType != AffiliationType.HUB) {
+            throw new BaseException(ErrorCode.DELIVERY_ACCESS_DENIED);
+        }
+        Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
+        delivery.assignDeliveryUserId(userId);
+
+        DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
+        deliveryRoute.assignDeliveryUserId(userId);
+
+        return DeliveryResponse.from(delivery);
+    }
+
+    // 배송 담당자 배정 (시스템 배정)
+    private void autoAssignDeliveryUserId(Delivery delivery, DeliveryRoute deliveryRoute) {
+        List<UUID> hubUserIds;
+        // 출발 허브 배송 담당자 조회 실패시 미배정
+        try {
+            hubUserIds = userClient.getHubDeliveryUserIds(delivery.getDepartureHubId()).getData();
+        } catch (FeignException e) {
+            return;
+        }
+
+        // 출발 허브에 배송 담당자가 없으면 미배정
+        if (hubUserIds == null || hubUserIds.isEmpty()) {
+            return;
+        }
+
+        Map<UUID, DeliveryRepositoryCustomImpl.DriverLoad> loads = deliveryRepository.findDriverLoads(hubUserIds);
+
+        UUID selected = hubUserIds.stream()
+                .min(Comparator
+                        .comparingLong((UUID id) -> loads.containsKey(id) ? loads.get(id).activeCount() : 0L)
+                        .thenComparing(
+                                id -> loads.containsKey(id) ? loads.get(id).lastDeliveryCreatedAt() : null,
+                                Comparator.nullsFirst(Comparator.naturalOrder())))
+                .orElseThrow();
+
+        delivery.assignDeliveryUserId(selected);
+        deliveryRoute.assignDeliveryUserId(selected);
+    }
 
     private HubRouteResponse getHubRoute(UUID departureHubId, UUID arrivalHubId) {
         ApiResponse<HubRouteResponse> response;

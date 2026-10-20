@@ -33,7 +33,8 @@ public enum ErrorCode {
     DELIVERY_ACCESS_DENIED(HttpStatus.FORBIDDEN, "배송에 대한 권한이 없습니다."),
     DELIVERY_ROUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "배송 경로를 찾을 수 없습니다."),
     INVALID_DELIVERY_STATUS(HttpStatus.CONFLICT, "현재 배송 상태에서는 처리할 수 없습니다."),
-    DELIVERY_USER_ALREADY_ASSIGNED(HttpStatus.CONFLICT, "이미 배송 담당자가 배정되었습니다.");
+    DELIVERY_USER_ALREADY_ASSIGNED(HttpStatus.CONFLICT, "이미 배송 담당자가 배정되었습니다."),
+    DELIVERY_USER_NOT_ASSIGNED(HttpStatus.CONFLICT, "배송 출발은 담당자가 배정되어야 가능합니다.");
 
     private final HttpStatus status;
     private final String message;

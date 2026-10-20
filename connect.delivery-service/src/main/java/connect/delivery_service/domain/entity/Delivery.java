@@ -38,10 +38,10 @@ public class Delivery extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private DeliveryStatus deliveryStatus;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 200)
     private String deliveryAddress;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 50)
     private String receiver;
 
     public static Delivery createDelivery(UUID orderId, UUID ordererId, UUID departureHubId, UUID arrivalHubId,
@@ -61,6 +61,7 @@ public class Delivery extends BaseEntity {
     // 배송 상태 변경
     public void startHubMoving(){
         validateDeliveryStatus(DeliveryStatus.HUB_WAITING);
+        validateAssigned();
         this.deliveryStatus = DeliveryStatus.HUB_MOVING;
     }
 
@@ -127,6 +128,12 @@ public class Delivery extends BaseEntity {
     private void validateDeliveryStatus(DeliveryStatus expectedStatus) {
         if (this.deliveryStatus != expectedStatus){
             throw new BaseException(ErrorCode.INVALID_DELIVERY_STATUS);
+        }
+    }
+
+    private void validateAssigned() {
+        if (this.deliveryUserId == null) {
+            throw new BaseException(ErrorCode.DELIVERY_USER_NOT_ASSIGNED);
         }
     }
 }

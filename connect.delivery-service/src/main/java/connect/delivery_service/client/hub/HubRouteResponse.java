@@ -1,4 +1,4 @@
-package connect.delivery_service.client;
+package connect.delivery_service.client.hub;
 
 import java.math.BigDecimal;
 import java.util.UUID;

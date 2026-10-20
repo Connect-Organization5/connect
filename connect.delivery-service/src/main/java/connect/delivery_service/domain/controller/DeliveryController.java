@@ -1,7 +1,7 @@
 package connect.delivery_service.domain.controller;
 
-import connect.delivery_service.client.AffiliationType;
-import connect.delivery_service.client.RoleType;
+import connect.delivery_service.client.user.AffiliationType;
+import connect.delivery_service.client.user.RoleType;
 import connect.delivery_service.domain.dto.*;
 import connect.delivery_service.domain.service.DeliveryService;
 import connect.delivery_service.global.dto.ApiResponse;

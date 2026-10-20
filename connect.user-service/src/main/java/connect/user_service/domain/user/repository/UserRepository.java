@@ -57,4 +57,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     int softDeleteById(@Param("id") UUID id,
                        @Param("deletedBy") UUID deletedBy,
                        @Param("deletedAt") LocalDateTime deletedAt);
+
+
+    // 허브 소속 배송기사 ID 목록 (MASTER 제외, 삭제된 회원은 @SQLRestriction 으로 제외)
+    // 정렬: 가입 순 → id 순 (배정 동률일 때 순서 고정)
+    @Query("SELECT u.id FROM User u " +
+            "WHERE u.affiliationType = :affiliationType " +
+            "AND u.affiliationId = :affiliationId " +
+            "AND u.role = :role " +
+            "ORDER BY u.createdAt ASC NULLS LAST, u.id ASC")
+    List<UUID> findIdsByAffiliationAndRole(@Param("affiliationType") AffiliationType affiliationType,
+                                           @Param("affiliationId") UUID affiliationId,
+                                           @Param("role") UserRole role);
 }
