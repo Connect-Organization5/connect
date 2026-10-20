@@ -5,7 +5,7 @@ import connect.user_service.domain.client.clientinterface.HubClient;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UserResponseDto;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -21,15 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -45,7 +37,7 @@ public class UserService {
 
     // 회원가입 (로그인 없이 누구나 가입 가능, 권한은 항상 USER)
     @Transactional
-    public UserResponse signup(SignUpRequestDto requestDto) {
+    public UserResponseDto signup(SignUpRequestDto requestDto) {
         String username = requestDto.getUsername();
         String email = requestDto.getEmail();
 
@@ -74,7 +66,7 @@ public class UserService {
         User user = new User(username, password, email, UserRole.USER, requestDto.getAffiliationType(), requestDto.getAffiliationId(), requestDto.getSlackId());
         userRepository.save(user);
 
-        return UserResponse.from(user);
+        return UserResponseDto.from(user);
     }
 
     // 아이디가 없거나 비밀번호가 틀려도 같은 에러를 반환해서 아이디 존재 여부를 노출하지 않음
@@ -91,7 +83,7 @@ public class UserService {
 
     // 회원 단건 조회 (USER 는 본인만, MASTER 는 같은 소속 회원만)
     @Transactional(readOnly = true)
-    public UserResponse getUser(UUID userId, User requester) {
+    public UserResponseDto getUser(UUID userId, User requester) {
         // 1. USER 가 다른 회원을 조회하면 거부 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
         if (requester.getRole() != ROLE_MASTER && !Objects.equals(requester.getId(), userId)) {
             throw new BaseException(ErrorCode.USER_ACCESS_DENIED);
@@ -104,12 +96,12 @@ public class UserService {
         // 3. MASTER 는 같은 소속 회원만 조회 가능 (본인은 항상 같은 소속)
         validateSameAffiliation(requester, user);
 
-        return UserResponse.from(user);
+        return UserResponseDto.from(user);
     }
 
     // 회원 목록 조회 (MASTER 만 가능, 요청자와 같은 소속의 모든 회원)
     @Transactional(readOnly = true)
-    public PageResponse<UserResponse> getAllUsers(User requester, int page, int size) {
+    public PageResponse<UserResponseDto> getAllUsers(User requester, int page, int size) {
         // 1. 권한 확인
         validateMaster(requester);
 
@@ -121,12 +113,12 @@ public class UserService {
                 PageRequest.of(page, size)
         );
 
-        return PageResponse.from(users.map(UserResponse::from));
+        return PageResponse.from(users.map(UserResponseDto::from));
     }
 
     // 회원 정보 수정 (MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 수정 가능)
     @Transactional
-    public UserResponse updateUser(UUID userId, UpdateUserRequestDto requestDto, User requester) {
+    public UserResponseDto updateUser(UUID userId, UpdateUserRequestDto requestDto, User requester) {
         // 1. 권한 확인 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
         validateMaster(requester);
 
@@ -158,7 +150,7 @@ public class UserService {
                 requestDto.getRole()
         );
 
-        return UserResponse.from(user);
+        return UserResponseDto.from(user);
     }
 
     // 회원 삭제 (논리적 삭제, MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 삭제 가능)
@@ -237,22 +229,12 @@ public class UserService {
 
 
     @Transactional(readOnly = true)
-    public UserResponse sendUser(UUID userId) {
+    public UserResponseDto sendUser(UUID userId) {
         // 대상 회원 조회
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
-        return UserResponse.from(user);
-    }
-
-    public Map<String,?> signup() {
-        Map<String,?> map = new HashMap<>();
-
-        // Company 목록 추가하기
-
-        // Hub 목록 추가하기
-
-        return map;
+        return UserResponseDto.from(user);
     }
 
     @Transactional(readOnly = true)

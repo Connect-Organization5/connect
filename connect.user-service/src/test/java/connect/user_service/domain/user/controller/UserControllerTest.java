@@ -1,7 +1,7 @@
 package connect.user_service.domain.user.controller;
 
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UserResponseDto;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -93,7 +93,7 @@ class UserControllerTest {
     @DisplayName("GET /users/{userId} - 회원 단건 조회 성공, 로그인 회원을 요청자로 전달")
     void getUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(idOf(1), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
+        UserResponseDto response = new UserResponseDto(idOf(1), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
         given(userService.getUser(eq(idOf(1)), same(loginUser))).willReturn(response);
 
         // when & then
@@ -166,7 +166,7 @@ class UserControllerTest {
     @DisplayName("PUT /users/{userId} - 성공 시 200 과 수정된 회원 정보, 로그인 회원을 요청자로 전달")
     void updateUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(idOf(2), "tester", "new@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "new-slack", CREATED_AT);
+        UserResponseDto response = new UserResponseDto(idOf(2), "tester", "new@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "new-slack", CREATED_AT);
         given(userService.updateUser(eq(idOf(2)), any(UpdateUserRequestDto.class), same(loginUser))).willReturn(response);
 
         // when & then
@@ -252,9 +252,9 @@ class UserControllerTest {
     @DisplayName("GET /users - 성공 시 200 과 PageResponse 형식, 로그인 회원을 요청자로 전달")
     void getAllUsers_success() throws Exception {
         // given
-        PageResponse<UserResponse> response = new PageResponse<>(
-                List.of(new UserResponse(idOf(1), "master", "master@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-master", CREATED_AT),
-                        new UserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT)),
+        PageResponse<UserResponseDto> response = new PageResponse<>(
+                List.of(new UserResponseDto(idOf(1), "master", "master@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-master", CREATED_AT),
+                        new UserResponseDto(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT)),
                 1, 2, 5, 3);
         given(userService.getAllUsers(same(loginUser), eq(1), eq(2))).willReturn(response);
 

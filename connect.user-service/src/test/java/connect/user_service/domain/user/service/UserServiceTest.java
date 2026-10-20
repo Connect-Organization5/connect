@@ -7,7 +7,7 @@ import connect.user_service.domain.user.dto.request.SignUpRequestDto;
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
 import connect.user_service.domain.user.dto.response.CompanyInfo;
 import connect.user_service.domain.user.dto.response.HubInfo;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UserResponseDto;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -130,7 +130,7 @@ class UserServiceTest {
         given(passwordEncoder.encode("password1!")).willReturn("encodedPw");
 
         // when
-        UserResponse response = userService.signup(request);
+        UserResponseDto response = userService.signup(request);
 
         // then
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
@@ -319,7 +319,7 @@ class UserServiceTest {
         given(userRepository.findById(idOf(1))).willReturn(Optional.of(self));
 
         // when
-        UserResponse response = userService.getUser(idOf(1), requester);
+        UserResponseDto response = userService.getUser(idOf(1), requester);
 
         // then
         assertThat(response.id()).isEqualTo(idOf(1));
@@ -367,7 +367,7 @@ class UserServiceTest {
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
 
         // when
-        UserResponse response = userService.getUser(idOf(2), requester);
+        UserResponseDto response = userService.getUser(idOf(2), requester);
 
         // then
         assertThat(response.id()).isEqualTo(idOf(2));
@@ -382,7 +382,7 @@ class UserServiceTest {
         given(userRepository.findById(idOf(1))).willReturn(Optional.of(self));
 
         // when
-        UserResponse response = userService.getUser(idOf(1), requester);
+        UserResponseDto response = userService.getUser(idOf(1), requester);
 
         // then
         assertThat(response.id()).isEqualTo(idOf(1));
@@ -472,7 +472,7 @@ class UserServiceTest {
         given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
 
         // when
-        UserResponse response = userService.updateUser(idOf(2), updateRequest(), requester);
+        UserResponseDto response = userService.updateUser(idOf(2), updateRequest(), requester);
 
         // then
         assertThat(target.getEmail()).isEqualTo("new@test.com");
@@ -662,7 +662,7 @@ class UserServiceTest {
                 .willAnswer(invocation -> new PageImpl<>(List.of(requester, member), invocation.getArgument(3), 12));
 
         // when
-        PageResponse<UserResponse> response = userService.getAllUsers(requester, 1, 10);
+        PageResponse<UserResponseDto> response = userService.getAllUsers(requester, 1, 10);
 
         // then
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
@@ -670,7 +670,7 @@ class UserServiceTest {
         assertThat(captor.getValue().getPageNumber()).isEqualTo(1);
         assertThat(captor.getValue().getPageSize()).isEqualTo(10);
 
-        assertThat(response.content()).extracting(UserResponse::id).containsExactly(idOf(1), idOf(2));
+        assertThat(response.content()).extracting(UserResponseDto::id).containsExactly(idOf(1), idOf(2));
         assertThat(response.page()).isEqualTo(1);
         assertThat(response.size()).isEqualTo(10);
         assertThat(response.totalElements()).isEqualTo(12);
@@ -686,7 +686,7 @@ class UserServiceTest {
                 .willAnswer(invocation -> new PageImpl<User>(List.of(), invocation.getArgument(3), 0));
 
         // when
-        PageResponse<UserResponse> response = userService.getAllUsers(requester, 0, 10);
+        PageResponse<UserResponseDto> response = userService.getAllUsers(requester, 0, 10);
 
         // then
         assertThat(response.content()).isEmpty();
@@ -881,7 +881,7 @@ class UserServiceTest {
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(user));
 
         // when
-        UserResponse response = userService.sendUser(idOf(2));
+        UserResponseDto response = userService.sendUser(idOf(2));
 
         // then
         assertThat(response.id()).isEqualTo(idOf(2));
