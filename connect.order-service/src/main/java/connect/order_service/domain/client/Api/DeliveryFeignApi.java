@@ -12,7 +12,7 @@ import java.util.UUID;
 @FeignClient(name = "delivery-service")
 public interface DeliveryFeignApi {
 
-    @PostMapping("/deliveries")
+    @PostMapping("/internal/deliveries")
     ApiResponse<DeliveryInfo> createDelivery(@RequestBody DeliveryCreateRequest request);
 
     @GetMapping("/deliveries/{deliveryId}")
@@ -26,6 +26,6 @@ public interface DeliveryFeignApi {
                         @RequestHeader("X-User-Role") String role,
                         @RequestBody DeliveryReceiverRequest request);
 
-    @PostMapping("/deliveries/cancel")
+    @PostMapping("/internal/deliveries/cancel")
     void cancelDelivery(@RequestParam("orderId") UUID orderId);
 }
