@@ -3,7 +3,7 @@ package connect.user_service.domain.auth.controller;
 import connect.user_service.global.security.JwtUtil;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UserResponseDto;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -99,7 +99,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/signup - 로그인 없이 성공 시 201 과 생성된 회원 정보 반환, 요청 값을 그대로 전달하고 토큰은 발급하지 않음")
     void signup_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
+        UserResponseDto response = new UserResponseDto(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
         given(userService.signup(any(SignUpRequestDto.class))).willReturn(response);
 
         // when & then
@@ -128,7 +128,7 @@ class AuthControllerTest {
     void signup_ignoresRoleInRequest() throws Exception {
         // given
         String body = VALID_BODY.replace("\"slackId\": \"slack-1\"", "\"slackId\": \"slack-1\", \"role\": \"MASTER\"");
-        UserResponse response = new UserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
+        UserResponseDto response = new UserResponseDto(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
         given(userService.signup(any(SignUpRequestDto.class))).willReturn(response);
 
         // when & then

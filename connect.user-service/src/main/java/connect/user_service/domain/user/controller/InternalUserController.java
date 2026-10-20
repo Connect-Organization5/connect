@@ -1,6 +1,6 @@
 package connect.user_service.domain.user.controller;
 
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UserResponseDto;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +23,8 @@ public class InternalUserController {
 
     // 다른 Service 에 User 본인 데이터 보내기
     @GetMapping("/{userId}")
-    public ResponseEntity<ApiResponse<UserResponse>> sendUser(@PathVariable UUID userId) {
-        UserResponse response = userService.sendUser(userId);
+    public ResponseEntity<ApiResponse<UserResponseDto>> sendUser(@PathVariable UUID userId) {
+        UserResponseDto response = userService.sendUser(userId);
         return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.ok("회원 정보를 조회했습니다.", response));
     }
 

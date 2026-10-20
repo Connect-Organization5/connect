@@ -1,6 +1,6 @@
 package connect.user_service.domain.user.controller;
 
-import connect.user_service.domain.user.dto.response.UserResponse;
+import connect.user_service.domain.user.dto.response.UserResponseDto;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.exception.BaseException;
@@ -54,7 +54,7 @@ class InternalUserControllerTest {
     @DisplayName("GET /internal/users/{userId} - userId 에 해당하는 회원 정보 반환, 비밀번호는 포함하지 않음")
     void sendUser_success() throws Exception {
         // given
-        UserResponse response = new UserResponse(USER_ID, "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
+        UserResponseDto response = new UserResponseDto(USER_ID, "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
         given(userService.sendUser(USER_ID)).willReturn(response);
 
         // when & then

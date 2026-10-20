@@ -6,7 +6,7 @@ import connect.user_service.domain.user.entity.User;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-public record UserResponse(
+public record UserResponseDto(
     UUID id,
     String username,
     String email,
@@ -16,8 +16,8 @@ public record UserResponse(
     LocalDateTime createdAt
     ){
 
-    public static UserResponse from(User user) {
-        return new UserResponse(
+    public static UserResponseDto from(User user) {
+        return new UserResponseDto(
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
