@@ -461,7 +461,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 수정 성공 - MASTER 이고 소속이 같으면 email, password, slackId, role 수정, 소속은 그대로")
+    @DisplayName("회원 수정 성공 - MASTER 는 email, password, slackId, role 수정, 소속은 그대로")
     void updateUser_success() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
@@ -503,13 +503,13 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 수정 실패 - 소속의 마지막 MASTER 를 USER 로 바꾸면 LAST_MASTER_CANNOT_BE_DEMOTED")
+    @DisplayName("회원 수정 실패 - 마지막 MASTER 를 USER 로 바꾸면 LAST_MASTER_CANNOT_BE_DEMOTED")
     void updateUser_demoteLastMaster() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User self = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         given(userRepository.findById(idOf(1))).willReturn(Optional.of(self));
-        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER)).willReturn(List.of(self));
+        given(userRepository.findAllByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(self));
         UpdateUserRequestDto request = updateRequest();
         request.setRole(UserRole.USER);
 
@@ -523,13 +523,13 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 수정 성공 - 같은 소속에 다른 MASTER 가 있으면 MASTER 를 USER 로 변경 가능")
+    @DisplayName("회원 수정 성공 - 다른 MASTER 가 있으면 MASTER 를 USER 로 변경 가능")
     void updateUser_demoteMasterWithOtherMaster() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
-        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER)).willReturn(List.of(requester, target));
+        given(userRepository.findAllByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(requester, target));
         given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
         UpdateUserRequestDto request = updateRequest();
         request.setRole(UserRole.USER);
@@ -570,35 +570,56 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 수정 실패 - 소속 유형이 다르면 USER_ACCESS_DENIED")
+    @DisplayName("회원 수정 성공 - MASTER 는 소속 유형이 다른 회원도 수정 가능")
     void updateUser_differentAffiliationType() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.USER, AffiliationType.HUB, AFFILIATION_ID);
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
+        given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
 
-        // when & then
-        assertThatThrownBy(() -> userService.updateUser(idOf(2), updateRequest(), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        assertThat(target.getEmail()).isEqualTo("user2@test.com");
+        // when
+        userService.updateUser(idOf(2), updateRequest(), requester);
+
+        // then
+        assertThat(target.getEmail()).isEqualTo("new@test.com");
+        assertThat(target.getAffiliationType()).isEqualTo(AffiliationType.HUB);
     }
 
     @Test
-    @DisplayName("회원 수정 실패 - 소속 ID 가 다르면 USER_ACCESS_DENIED")
+    @DisplayName("회원 수정 성공 - MASTER 는 소속 ID 가 다른 회원도 수정 가능")
     void updateUser_differentAffiliationId() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.USER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID);
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
+        given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
 
-        // when & then
-        assertThatThrownBy(() -> userService.updateUser(idOf(2), updateRequest(), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        assertThat(target.getEmail()).isEqualTo("user2@test.com");
+        // when
+        userService.updateUser(idOf(2), updateRequest(), requester);
+
+        // then
+        assertThat(target.getEmail()).isEqualTo("new@test.com");
+        assertThat(target.getAffiliationId()).isEqualTo(OTHER_AFFILIATION_ID);
+    }
+
+    @Test
+    @DisplayName("회원 수정 성공 - 다른 소속에 MASTER 가 있으면 소속의 유일한 MASTER 도 USER 로 변경 가능")
+    void updateUser_demoteMasterWithOtherAffiliationMaster() {
+        // given
+        User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
+        User target = userOf(2, UserRole.MASTER, AffiliationType.HUB, OTHER_AFFILIATION_ID);
+        given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
+        given(userRepository.findAllByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(requester, target));
+        given(passwordEncoder.encode("newPassword1!")).willReturn("newEncodedPw");
+        UpdateUserRequestDto request = updateRequest();
+        request.setRole(UserRole.USER);
+
+        // when
+        userService.updateUser(idOf(2), request, requester);
+
+        // then
+        assertThat(target.getRole()).isEqualTo(UserRole.USER);
     }
 
     @Test
@@ -653,27 +674,28 @@ class UserServiceTest {
     // ===== 회원 목록 조회 =====
 
     @Test
-    @DisplayName("회원 목록 조회 성공 - 요청자 소속, MASTER 우선 정렬 기준, page/size 로 조회")
+    @DisplayName("회원 목록 조회 성공 - 소속과 관계없이 모든 회원, MASTER 우선 정렬 기준, page/size 로 조회")
     void getAllUsers_success() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User member = userOf(2, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
-        given(userRepository.findAllByAffiliation(eq(AffiliationType.COMPANY), eq(AFFILIATION_ID), eq(UserRole.MASTER), any(Pageable.class)))
-                .willAnswer(invocation -> new PageImpl<>(List.of(requester, member), invocation.getArgument(3), 12));
+        User otherMember = userOf(3, UserRole.USER, AffiliationType.HUB, OTHER_AFFILIATION_ID);
+        given(userRepository.findAllOrderByRole(eq(UserRole.MASTER), any(Pageable.class)))
+                .willAnswer(invocation -> new PageImpl<>(List.of(requester, member, otherMember), invocation.getArgument(1), 13));
 
         // when
         PageResponse<UserResponseDto> response = userService.getAllUsers(requester, 1, 10);
 
         // then
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        then(userRepository).should().findAllByAffiliation(eq(AffiliationType.COMPANY), eq(AFFILIATION_ID), eq(UserRole.MASTER), captor.capture());
+        then(userRepository).should().findAllOrderByRole(eq(UserRole.MASTER), captor.capture());
         assertThat(captor.getValue().getPageNumber()).isEqualTo(1);
         assertThat(captor.getValue().getPageSize()).isEqualTo(10);
 
-        assertThat(response.content()).extracting(UserResponseDto::id).containsExactly(idOf(1), idOf(2));
+        assertThat(response.content()).extracting(UserResponseDto::id).containsExactly(idOf(1), idOf(2), idOf(3));
         assertThat(response.page()).isEqualTo(1);
         assertThat(response.size()).isEqualTo(10);
-        assertThat(response.totalElements()).isEqualTo(12);
+        assertThat(response.totalElements()).isEqualTo(13);
         assertThat(response.totalPages()).isEqualTo(2);
     }
 
@@ -682,8 +704,8 @@ class UserServiceTest {
     void getAllUsers_empty() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
-        given(userRepository.findAllByAffiliation(eq(AffiliationType.COMPANY), eq(AFFILIATION_ID), eq(UserRole.MASTER), any(Pageable.class)))
-                .willAnswer(invocation -> new PageImpl<User>(List.of(), invocation.getArgument(3), 0));
+        given(userRepository.findAllOrderByRole(eq(UserRole.MASTER), any(Pageable.class)))
+                .willAnswer(invocation -> new PageImpl<User>(List.of(), invocation.getArgument(1), 0));
 
         // when
         PageResponse<UserResponseDto> response = userService.getAllUsers(requester, 0, 10);
@@ -705,13 +727,13 @@ class UserServiceTest {
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        then(userRepository).should(never()).findAllByAffiliation(any(), any(), any(), any());
+        then(userRepository).should(never()).findAllOrderByRole(any(), any());
     }
 
     // ===== 회원 삭제 (논리적 삭제) =====
 
     @Test
-    @DisplayName("회원 삭제 성공 - MASTER 이고 소속이 같으면 요청자 id 로 논리적 삭제")
+    @DisplayName("회원 삭제 성공 - MASTER 는 요청자 id 로 논리적 삭제")
     void deleteUser_success() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
@@ -729,13 +751,13 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 삭제 성공 - 같은 소속에 다른 MASTER 가 있으면 MASTER 는 본인 삭제 가능")
+    @DisplayName("회원 삭제 성공 - 다른 MASTER 가 있으면 MASTER 는 본인 삭제 가능")
     void deleteUser_masterSelf() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User self = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         given(userRepository.findById(idOf(1))).willReturn(Optional.of(self));
-        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER))
+        given(userRepository.findAllByRoleForUpdate(UserRole.MASTER))
                 .willReturn(List.of(self, userOf(2, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID)));
         given(userRepository.softDeleteById(eq(idOf(1)), eq(idOf(1)), any(LocalDateTime.class))).willReturn(1);
 
@@ -747,13 +769,13 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 삭제 실패 - 소속의 마지막 MASTER 면 LAST_MASTER_CANNOT_BE_DELETED")
+    @DisplayName("회원 삭제 실패 - 마지막 MASTER 면 LAST_MASTER_CANNOT_BE_DELETED")
     void deleteUser_lastMaster() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User self = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         given(userRepository.findById(idOf(1))).willReturn(Optional.of(self));
-        given(userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER)).willReturn(List.of(self));
+        given(userRepository.findAllByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(self));
 
         // when & then
         assertThatThrownBy(() -> userService.deleteUser(idOf(1), requester))
@@ -776,7 +798,7 @@ class UserServiceTest {
         userService.deleteUser(idOf(2), requester);
 
         // then
-        then(userRepository).should(never()).findAllByAffiliationAndRoleForUpdate(any(), any(), any());
+        then(userRepository).should(never()).findAllByRoleForUpdate(any());
     }
 
     @Test
@@ -809,35 +831,35 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 삭제 실패 - 소속 유형이 다르면 USER_ACCESS_DENIED")
+    @DisplayName("회원 삭제 성공 - MASTER 는 소속 유형이 다른 회원도 삭제 가능")
     void deleteUser_differentAffiliationType() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.USER, AffiliationType.HUB, AFFILIATION_ID);
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
+        given(userRepository.softDeleteById(eq(idOf(2)), eq(idOf(1)), any(LocalDateTime.class))).willReturn(1);
 
-        // when & then
-        assertThatThrownBy(() -> userService.deleteUser(idOf(2), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+        // when
+        userService.deleteUser(idOf(2), requester);
+
+        // then
+        then(userRepository).should().softDeleteById(eq(idOf(2)), eq(idOf(1)), any(LocalDateTime.class));
     }
 
     @Test
-    @DisplayName("회원 삭제 실패 - 소속 ID 가 다르면 USER_ACCESS_DENIED")
+    @DisplayName("회원 삭제 성공 - MASTER 는 소속 ID 가 다른 회원도 삭제 가능")
     void deleteUser_differentAffiliationId() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.USER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID);
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
+        given(userRepository.softDeleteById(eq(idOf(2)), eq(idOf(1)), any(LocalDateTime.class))).willReturn(1);
 
-        // when & then
-        assertThatThrownBy(() -> userService.deleteUser(idOf(2), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
-        then(userRepository).should(never()).softDeleteById(any(), any(), any());
+        // when
+        userService.deleteUser(idOf(2), requester);
+
+        // then
+        then(userRepository).should().softDeleteById(eq(idOf(2)), eq(idOf(1)), any(LocalDateTime.class));
     }
 
     @Test

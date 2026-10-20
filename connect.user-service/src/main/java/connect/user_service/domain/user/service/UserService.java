@@ -99,19 +99,14 @@ public class UserService {
         return UserResponseDto.from(user);
     }
 
-    // 회원 목록 조회 (MASTER 만 가능, 요청자와 같은 소속의 모든 회원)
+    // 회원 목록 조회 (MASTER 만 가능, 소속과 관계없이 모든 회원)
     @Transactional(readOnly = true)
     public PageResponse<UserResponseDto> getAllUsers(User requester, int page, int size) {
         // 1. 권한 확인
         validateMaster(requester);
 
-        // 2. 요청자의 소속으로 조회 (정렬은 Repository 쿼리에 고정: MASTER 먼저 → createdAt 내림차순)
-        Page<User> users = userRepository.findAllByAffiliation(
-                requester.getAffiliationType(),
-                requester.getAffiliationId(),
-                ROLE_MASTER,
-                PageRequest.of(page, size)
-        );
+        // 2. 모든 회원 조회 (정렬은 Repository 쿼리에 고정: MASTER 먼저 → createdAt 내림차순)
+        Page<User> users = userRepository.findAllOrderByRole(ROLE_MASTER, PageRequest.of(page, size));
 
         return PageResponse.from(users.map(UserResponseDto::from));
     }
@@ -127,9 +122,9 @@ public class UserService {
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
         // 3. 소속 확인
-        validateSameAffiliation(requester, user);
+        // validateSameAffiliation(requester, user);
 
-        // 4. 소속의 마지막 MASTER 는 USER 로 강등 불가 (강등하면 그 소속에서 회원을 관리할 수 없음)
+        // 4. 마지막 MASTER 는 USER 로 강등 불가 (강등하면 회원을 관리할 MASTER 가 없음)
         if (requestDto.getRole() != ROLE_MASTER && isLastMaster(user)) {
             throw new BaseException(ErrorCode.LAST_MASTER_CANNOT_BE_DEMOTED);
         }
@@ -164,9 +159,9 @@ public class UserService {
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
         // 3. 소속 확인
-        validateSameAffiliation(requester, user);
+        // validateSameAffiliation(requester, user);
 
-        // 4. 소속의 마지막 MASTER 는 삭제 불가 (삭제하면 그 소속에서 회원을 관리할 수 없음)
+        // 4. 마지막 MASTER 는 삭제 불가 (삭제하면 회원을 관리할 MASTER 가 없음)
         if (isLastMaster(user)) {
             throw new BaseException(ErrorCode.LAST_MASTER_CANNOT_BE_DELETED);
         }
@@ -205,13 +200,12 @@ public class UserService {
         }
     }
 
-    // 대상이 MASTER 이고 같은 소속에 다른 MASTER 가 없으면 true (대상이 USER 면 MASTER 를 조회하지 않음)
-    // 소속의 MASTER 행을 잠그고 세므로, 같은 소속 MASTER 를 동시에 삭제/강등해도 둘 다 통과하지 않음
+    // 대상이 MASTER 이고 다른 MASTER 가 없으면 true (대상이 USER 면 MASTER 를 조회하지 않음)
+    // 모든 MASTER 행을 잠그고 세므로, MASTER 를 동시에 삭제/강등해도 둘 다 통과하지 않음
     // (잠금은 호출한 @Transactional 메서드가 끝날 때 풀림)
     private boolean isLastMaster(User target) {
         return target.getRole() == ROLE_MASTER
-                && userRepository.findAllByAffiliationAndRoleForUpdate(
-                        target.getAffiliationType(), target.getAffiliationId(), ROLE_MASTER).size() <= 1;
+                && userRepository.findAllByRoleForUpdate(ROLE_MASTER).size() <= 1;
     }
 
     // affiliationId 는 UUID(객체) 이므로 == 가 아닌 equals 로 비교
