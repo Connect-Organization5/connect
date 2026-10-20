@@ -1,10 +1,17 @@
 package connect.user_service.domain.auth.controller;
 
+import connect.user_service.domain.client.clientinterface.CompanyClient;
+import connect.user_service.domain.client.clientinterface.HubClient;
+import connect.user_service.domain.user.dto.response.CompanyInfo;
+import connect.user_service.domain.user.dto.response.HubInfo;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
 import connect.user_service.domain.user.repository.UserRepository;
+import connect.user_service.global.exception.BaseException;
+import connect.user_service.global.exception.ErrorCode;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +20,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -21,6 +29,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.emptyOrNullString;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,6 +61,21 @@ class AuthControllerIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    // 테스트에서 실제 Company / Hub Service 를 호출하지 않도록 Mock 으로 교체 (setUp 에서 기본은 조회 성공으로 설정)
+    @MockitoBean
+    private CompanyClient companyClient;
+
+    @MockitoBean
+    private HubClient hubClient;
+
+    @BeforeEach
+    void setUp() {
+        given(companyClient.getCompany(AFFILIATION_ID))
+                .willReturn(new CompanyInfo(AFFILIATION_ID, null, UUID.randomUUID(), "커넥트상사", "서울특별시 강남구 테헤란로 1"));
+        given(hubClient.getHub(AFFILIATION_ID))
+                .willReturn(new HubInfo(AFFILIATION_ID, "서울특별시 센터", "서울특별시 송파구 송파대로 55"));
+    }
 
     @AfterEach
     void tearDown() {
@@ -120,5 +144,29 @@ class AuthControllerIntegrationTest {
         postJson("/auth/signup", VALID_BODY)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("USER_ALREADY_EXISTS"));
+    }
+
+    @Test
+    @DisplayName("소속 업체가 Company Service 에 없으면 404 COMPANY_NOT_FOUND, DB 에 저장하지 않음")
+    void signup_companyNotFound() throws Exception {
+        given(companyClient.getCompany(AFFILIATION_ID)).willThrow(new BaseException(ErrorCode.COMPANY_NOT_FOUND));
+
+        postJson("/auth/signup", VALID_BODY)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("COMPANY_NOT_FOUND"));
+
+        assertThat(userRepository.findByUsername("tester")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("소속 허브가 Hub Service 에 없으면 404 HUB_NOT_FOUND, DB 에 저장하지 않음")
+    void signup_hubNotFound() throws Exception {
+        given(hubClient.getHub(AFFILIATION_ID)).willThrow(new BaseException(ErrorCode.HUB_NOT_FOUND));
+
+        postJson("/auth/signup", VALID_BODY.replace("\"COMPANY\"", "\"HUB\""))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("HUB_NOT_FOUND"));
+
+        assertThat(userRepository.findByUsername("tester")).isEmpty();
     }
 }

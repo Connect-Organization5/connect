@@ -1,9 +1,11 @@
 package connect.user_service.domain.user.service;
 
+import connect.user_service.domain.client.clientinterface.CompanyClient;
+import connect.user_service.domain.client.clientinterface.HubClient;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
 import connect.user_service.domain.user.dto.request.UpdateUserRequestDto;
-import connect.user_service.domain.user.dto.response.UpdateUserResponse;
+import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -19,6 +21,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.List;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -32,9 +40,12 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
+    private final CompanyClient companyClient;
+    private final HubClient hubClient;
+
     // 회원가입 (로그인 없이 누구나 가입 가능, 권한은 항상 USER)
     @Transactional
-    public UpdateUserResponse signup(SignUpRequestDto requestDto) {
+    public UserResponse signup(SignUpRequestDto requestDto) {
         String username = requestDto.getUsername();
         String email = requestDto.getEmail();
 
@@ -43,15 +54,18 @@ public class UserService {
             throw new BaseException(ErrorCode.USER_ALREADY_EXISTS);
         }
 
-        // email 중복확인
+        // 2. email 중복확인
         if (userRepository.existsByEmail(email)) {
             throw new BaseException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
-        // slackId 중복확인
+        // 3. slackId 중복확인
         if (userRepository.existsBySlackId(requestDto.getSlackId())) {
             throw new BaseException(ErrorCode.SLACK_ID_ALREADY_EXISTS);
         }
+
+        // 4. affiliationType 에 따른 affiliationId가 존재하는지 확인
+        validateAffiliationExists(requestDto.getAffiliationType(), requestDto.getAffiliationId());
 
         // 중복 확인을 통과한 경우에만 비밀번호 암호화
         String password = passwordEncoder.encode(requestDto.getPassword());
@@ -60,7 +74,7 @@ public class UserService {
         User user = new User(username, password, email, UserRole.USER, requestDto.getAffiliationType(), requestDto.getAffiliationId(), requestDto.getSlackId());
         userRepository.save(user);
 
-        return UpdateUserResponse.from(user);
+        return UserResponse.from(user);
     }
 
     // 아이디가 없거나 비밀번호가 틀려도 같은 에러를 반환해서 아이디 존재 여부를 노출하지 않음
@@ -77,7 +91,7 @@ public class UserService {
 
     // 회원 단건 조회 (USER 는 본인만, MASTER 는 같은 소속 회원만)
     @Transactional(readOnly = true)
-    public UpdateUserResponse getUser(UUID userId, User requester) {
+    public UserResponse getUser(UUID userId, User requester) {
         // 1. USER 가 다른 회원을 조회하면 거부 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
         if (requester.getRole() != ROLE_MASTER && !Objects.equals(requester.getId(), userId)) {
             throw new BaseException(ErrorCode.USER_ACCESS_DENIED);
@@ -90,12 +104,12 @@ public class UserService {
         // 3. MASTER 는 같은 소속 회원만 조회 가능 (본인은 항상 같은 소속)
         validateSameAffiliation(requester, user);
 
-        return UpdateUserResponse.from(user);
+        return UserResponse.from(user);
     }
 
     // 회원 목록 조회 (MASTER 만 가능, 요청자와 같은 소속의 모든 회원)
     @Transactional(readOnly = true)
-    public PageResponse<UpdateUserResponse> getAllUsers(User requester, int page, int size) {
+    public PageResponse<UserResponse> getAllUsers(User requester, int page, int size) {
         // 1. 권한 확인
         validateMaster(requester);
 
@@ -107,12 +121,12 @@ public class UserService {
                 PageRequest.of(page, size)
         );
 
-        return PageResponse.from(users.map(UpdateUserResponse::from));
+        return PageResponse.from(users.map(UserResponse::from));
     }
 
     // 회원 정보 수정 (MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 수정 가능)
     @Transactional
-    public UpdateUserResponse updateUser(UUID userId, UpdateUserRequestDto requestDto, User requester) {
+    public UserResponse updateUser(UUID userId, UpdateUserRequestDto requestDto, User requester) {
         // 1. 권한 확인 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
         validateMaster(requester);
 
@@ -144,7 +158,7 @@ public class UserService {
                 requestDto.getRole()
         );
 
-        return UpdateUserResponse.from(user);
+        return UserResponse.from(user);
     }
 
     // 회원 삭제 (논리적 삭제, MASTER 이고 대상 회원과 소속이 같을 때만 가능, MASTER 는 본인 삭제 가능)
@@ -171,6 +185,26 @@ public class UserService {
             // 조회 이후 다른 요청이 먼저 삭제한 경우
             throw new BaseException(ErrorCode.USER_NOT_FOUND);
         }
+    }
+
+    // 소속 유형에 맞는 서비스(Hub / Company)에 조회해서 존재 여부 확인
+    // 없으면 각 Client 가 404 를 HUB_NOT_FOUND / COMPANY_NOT_FOUND 로 바꿔서 던짐
+    private void validateAffiliationExists(AffiliationType affiliationType, UUID affiliationId) {
+        switch (affiliationType) {
+            case HUB:
+                if (hubClient.getHub(affiliationId) == null) {
+                    throw new BaseException(ErrorCode.HUB_NOT_FOUND);
+                }
+                break;
+            case COMPANY:
+                if (companyClient.getCompany(affiliationId) == null) {
+                    throw new BaseException(ErrorCode.COMPANY_NOT_FOUND);
+                }
+                break;
+            default:
+                throw new BaseException(ErrorCode.AFFILIATION_ID_NOT_FOUND);
+        }
+
     }
 
     private void validateMaster(User requester) {
@@ -203,12 +237,22 @@ public class UserService {
 
 
     @Transactional(readOnly = true)
-    public UpdateUserResponse sendUser(UUID userId) {
+    public UserResponse sendUser(UUID userId) {
         // 대상 회원 조회
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
-        return UpdateUserResponse.from(user);
+        return UserResponse.from(user);
+    }
+
+    public Map<String,?> signup() {
+        Map<String,?> map = new HashMap<>();
+
+        // Company 목록 추가하기
+
+        // Hub 목록 추가하기
+
+        return map;
     }
 
     @Transactional(readOnly = true)
