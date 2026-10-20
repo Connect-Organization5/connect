@@ -5,10 +5,17 @@ spring:
   application:
     name: eureka-gateway
 
+  # 민감한 값은 환경변수로 주입. 로컬에서는 모듈 폴더의 .env 파일(git 제외)을 읽음 (.env.example 참고)
+  config:
+    import: optional:file:.env[.properties]
+
+  main:
+    web-application-type: reactive  # Spring 애플리케이션이 리액티브 웹 애플리케이션으로 설정됨
+
   cloud:
     gateway:
       server:
-        webmvc:
+        webflux:
           routes:
             - id: user-service
               uri: lb://user-service
@@ -35,13 +42,54 @@ spring:
               predicates:
                 - Path=/deliveries, /deliveries/**
 
+            # ===== 서비스별 OpenAPI 문서 (통합 Swagger UI 용) =====
+            # /docs/{서비스}/v3/api-docs → StripPrefix=2 → 해당 서비스의 /v3/api-docs
+            # 문서 JSON 경로 하나만 정확히 매칭한다 (/docs/company/** 로 열면 StripPrefix 로 /internal/** 등 다른 경로가 노출될 수 있음)
+            # 서비스 추가 방법: 해당 서비스에 springdoc 적용 후 아래 라우트와 springdoc.swagger-ui.urls 에 한 줄씩 추가
+            - id: company-service-docs
+              uri: lb://company-service
+              predicates:
+                - Path=/docs/company/v3/api-docs
+              filters:
+                - StripPrefix=2
+
+            - id: delivery-service-docs
+              uri: lb://delivery-service
+              predicates:
+                - Path=/docs/delivery/v3/api-docs
+              filters:
+                - StripPrefix=2
+
 eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka/
+
+# 통합 Swagger UI: http://localhost:8080/swagger-ui/index.html (상단 드롭다운에서 서비스 선택)
+# 개발 환경용. 운영에서는 문서를 외부에 공개하지 않도록 springdoc.swagger-ui.enabled=false 등으로 끄는 것을 권장
+springdoc:
+  swagger-ui:
+    urls:
+      - name: company-service
+        url: /docs/company/v3/api-docs
+      - name: delivery-service
+        url: /docs/delivery/v3/api-docs
+      # 문서가 준비되면 추가 (각 서비스에 springdoc 의존성과 /v3/api-docs 필요)
+      # - name: user-service
+      #   url: /docs/user/v3/api-docs
+      # - name: hub-service
+      #   url: /docs/hub/v3/api-docs
+      # - name: order-service
+      #   url: /docs/order/v3/api-docs
+    urls-primary-name: company-service
 
 management:
   endpoints:
     web:
       exposure:
         include: gateway
+
+service:
+  jwt:
+    # user-service 의 jwt.secret-key 와 같은 값이어야 함
+    secret-key: ${JWT_SECRET_KEY}

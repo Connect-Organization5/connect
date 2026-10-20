@@ -1,0 +1,99 @@
+package connect.user_service.global.security;
+
+import connect.user_service.domain.user.entity.User;
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+import java.security.Key;
+import java.util.Date;
+
+@Slf4j(topic = "JwtUtil")
+@Component
+public class JwtUtil {
+    // Header KEY 값
+    public static final String AUTHORIZATION_HEADER = "Authorization";
+    // Token 식별자
+    public static final String BEARER_PREFIX = "Bearer ";
+    // 사용자 이름 claim KEY (발급, 검증 모두 이 값 사용)
+    public static final String USERNAME_KEY = "username";
+    // Gateway 가 하위 서비스로 전달할 사용자 정보 claim KEY (X-User-* 헤더로 변환됨)
+    public static final String USER_ID_KEY = "userId";
+    public static final String ROLE_KEY = "role";
+    public static final String AFFILIATION_TYPE_KEY = "affiliationType";
+    public static final String AFFILIATION_ID_KEY = "affiliationId";
+
+    @Value("${service.jwt.secret-key}") // Gateway 와 같은 Base64URL Encode 한 SecretKey
+    private String secretKey;
+
+    @Value("${service.jwt.access-expiration}")
+    private Long accessExpiration;
+
+    @Value("${spring.application.name}") // 토큰 발급자(issuer)
+    private String issuer;
+
+    private Key key;
+
+    private final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.HS512;
+
+    @PostConstruct
+    public void init() {
+        byte[] bytes = Decoders.BASE64URL.decode(secretKey);
+        key = Keys.hmacShaKeyFor(bytes);
+    }
+
+    // Access Token 생성 (응답에는 "Bearer " 없이 토큰만 반환, 클라이언트가 헤더에 붙여서 전송)
+    // 비밀번호, 이메일, Slack ID 같은 개인정보는 넣지 않음
+    public String createAccessToken(User user) {
+        Date date = new Date();
+
+        return Jwts.builder()
+                .claim(USERNAME_KEY, user.getUsername()) // User Service 인증용 (JwtAuthorizationFilter)
+                .claim(USER_ID_KEY, user.getId().toString())
+                .claim(ROLE_KEY, user.getRole().name()) // MASTER, USER
+                .claim(AFFILIATION_TYPE_KEY, user.getAffiliationType().name()) // COMPANY, HUB
+                .claim(AFFILIATION_ID_KEY, user.getAffiliationId().toString())
+                .issuer(issuer) // 발급자
+                .issuedAt(date) // 발급일
+                .expiration(new Date(date.getTime() + accessExpiration)) // 만료 시간
+                .signWith(key, signatureAlgorithm) // 암호화 알고리즘
+                .compact();
+    }
+
+    // header 에서 JWT 가져오기
+    public String getJwtFromHeader(HttpServletRequest request) {
+        String bearerToken = request.getHeader(AUTHORIZATION_HEADER);
+        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith(BEARER_PREFIX)) {
+            return bearerToken.substring(7);
+        }
+        return null;
+    }
+
+    // 토큰 검증
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parser().setSigningKey(key).build().parseClaimsJws(token);
+            return true;
+        } catch (SecurityException | MalformedJwtException | SignatureException e) {
+            log.error("Invalid JWT signature, 유효하지 않는 JWT 서명 입니다.");
+        } catch (ExpiredJwtException e) {
+            log.error("Expired JWT token, 만료된 JWT token 입니다.");
+        } catch (UnsupportedJwtException e) {
+            log.error("Unsupported JWT token, 지원되지 않는 JWT 토큰 입니다.");
+        } catch (IllegalArgumentException e) {
+            log.error("JWT claims is empty, 잘못된 JWT 토큰 입니다.");
+        }
+        return false;
+    }
+
+    // 토큰에서 사용자 정보 가져오기
+    public Claims getUserInfoFromToken(String token) {
+        return Jwts.parser().setSigningKey(key).build().parseClaimsJws(token).getBody();
+    }
+}
