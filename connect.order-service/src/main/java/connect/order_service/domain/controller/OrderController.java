@@ -7,6 +7,8 @@ import connect.order_service.domain.service.OrderService;
 import connect.order_service.global.dto.ApiResponse;
 import connect.order_service.global.dto.PagedResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,8 +49,13 @@ public class OrderController {
     public ResponseEntity<ApiResponse<PagedResponse<OrderResponse>>> getOrders(
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "page는 0 이상이어야 합니다.") int page,
+
+            @RequestParam(defaultValue = "10")
+            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "size는 100 이하이어야 합니다.") int size) {
 
         PagedResponse<OrderResponse> response = orderService.searchPageOrders(userId, role, page, size);
         return ResponseEntity.ok(ApiResponse.ok("주문 목록 조회에 성공했습니다.", response));
@@ -70,8 +77,12 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role,
             @RequestHeader("X-User-Affiliation-Type") String userAffiliationType,
             @RequestHeader("X-User-Affiliation-Id") UUID userAffiliationId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "page는 0 이상이어야 합니다.") int page,
+
+            @RequestParam(defaultValue = "10")
+            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "size는 100 이하이어야 합니다.") int size) {
 
         PagedResponse<OrderResponse> response = orderService.searchReceivedPageOrders(userId, role, userAffiliationType, userAffiliationId, page, size);
         return ResponseEntity.ok(ApiResponse.ok("주문 받은 목록 조회에 성공했습니다.", response));
