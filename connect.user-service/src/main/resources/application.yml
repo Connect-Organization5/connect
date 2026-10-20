@@ -4,7 +4,7 @@ spring:
 
   # 민감한 값은 환경변수로 주입. 로컬에서는 모듈 폴더의 .env 파일(git 제외)을 읽음 (.env.example 참고)
   config:
-    import: optional:file:.env[.properties
+    import: optional:file:.env[.properties]
 
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/connect_user}
