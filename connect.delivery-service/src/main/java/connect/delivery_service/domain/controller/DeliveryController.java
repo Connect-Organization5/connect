@@ -3,9 +3,11 @@ package connect.delivery_service.domain.controller;
 import connect.delivery_service.client.user.AffiliationType;
 import connect.delivery_service.client.user.RoleType;
 import connect.delivery_service.domain.dto.*;
+import connect.delivery_service.domain.controller.docs.DeliveryControllerDocs;
 import connect.delivery_service.domain.service.DeliveryService;
 import connect.delivery_service.global.dto.ApiResponse;
 import connect.delivery_service.global.dto.PagedResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,15 +17,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/deliveries")
 @RequiredArgsConstructor
-public class DeliveryController {
+public class DeliveryController implements DeliveryControllerDocs {
     private final DeliveryService deliveryService;
-
-    // 배송 생성
-    @PostMapping
-    public ResponseEntity<ApiResponse<DeliveryResponse>> createDelivery(@RequestBody CreateDeliveryRequest request) {
-        DeliveryResponse response = deliveryService.createDelivery(request);
-        return ResponseEntity.ok(ApiResponse.ok("배송이 생성되었습니다.", response));
-    }
 
     // 배송 단건 조회
     @GetMapping("/{deliveryId}")
@@ -79,12 +74,6 @@ public class DeliveryController {
     }
 
 
-    @PostMapping("/cancel")
-    public ResponseEntity<ApiResponse<Void>> cancelByOrderId(@RequestParam UUID orderId) {
-        deliveryService.cancelByOrderId(orderId);
-        return ResponseEntity.ok(ApiResponse.ok("배송이 취소되었습니다.", null));
-    }
-
     // 배송 담당자 배정 (요청한 본인이 배정)
     @PostMapping("/{deliveryId}/delivery-user")
     public ResponseEntity<ApiResponse<DeliveryResponse>> assignDeliveryUserId(
@@ -100,7 +89,7 @@ public class DeliveryController {
     public ResponseEntity<ApiResponse<DeliveryResponse>> changeDeliveryUserId(
             @PathVariable UUID deliveryId,
             @RequestHeader("X-User-Role") RoleType role,
-            @RequestBody ChangeDeliveryUserRequest request) {
+            @Valid @RequestBody ChangeDeliveryUserRequest request) {
         DeliveryResponse response = deliveryService.changeDeliveryUserId(deliveryId, role, request.getDeliveryUserId());
         return ResponseEntity.ok(ApiResponse.ok("배송 담당자가 변경되었습니다.", response));
     }
@@ -111,7 +100,7 @@ public class DeliveryController {
             @PathVariable UUID deliveryId,
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") RoleType role,
-            @RequestBody ChangeReceiverRequest request) {
+            @Valid @RequestBody ChangeReceiverRequest request) {
         DeliveryResponse response = deliveryService.changeReceiver(deliveryId, userId, role, request.getReceiver());
         return ResponseEntity.ok(ApiResponse.ok("수령인이 변경되었습니다.", response));
     }
