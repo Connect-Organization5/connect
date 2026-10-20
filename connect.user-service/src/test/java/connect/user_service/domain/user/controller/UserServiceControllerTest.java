@@ -58,13 +58,15 @@ class UserServiceControllerTest {
         // when & then
         mockMvc.perform(get(URL, USER_ID))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(USER_ID.toString()))
-                .andExpect(jsonPath("$.username").value("tester"))
-                .andExpect(jsonPath("$.email").value("tester@test.com"))
-                .andExpect(jsonPath("$.affiliationType").value("COMPANY"))
-                .andExpect(jsonPath("$.affiliationId").value(AFFILIATION_ID.toString()))
-                .andExpect(jsonPath("$.slackId").value("slack-1"))
-                .andExpect(jsonPath("$.password").doesNotExist());
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원 정보를 조회했습니다."))
+                .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.data.username").value("tester"))
+                .andExpect(jsonPath("$.data.email").value("tester@test.com"))
+                .andExpect(jsonPath("$.data.affiliationType").value("COMPANY"))
+                .andExpect(jsonPath("$.data.affiliationId").value(AFFILIATION_ID.toString()))
+                .andExpect(jsonPath("$.data.slackId").value("slack-1"))
+                .andExpect(jsonPath("$.data.password").doesNotExist());
     }
 
     @Test

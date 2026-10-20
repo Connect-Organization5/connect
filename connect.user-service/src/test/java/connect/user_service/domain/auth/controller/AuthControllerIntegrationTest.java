@@ -69,8 +69,11 @@ class AuthControllerIntegrationTest {
     void signup_withoutToken() throws Exception {
         postJson("/auth/signup", VALID_BODY)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.username").value("tester"))
-                .andExpect(jsonPath("$.password").doesNotExist());
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("회원가입이 완료되었습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.username").value("tester"))
+                .andExpect(jsonPath("$.data.password").doesNotExist());
 
         User saved = userRepository.findByUsername("tester").orElseThrow();
         assertThat(saved.getRole()).isEqualTo(UserRole.USER);
@@ -102,7 +105,10 @@ class AuthControllerIntegrationTest {
                 { "username": "tester", "password": "password1!" }
                 """)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.access_token").value(not(emptyOrNullString())));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("로그인에 성공했습니다."))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.data.access_token").value(not(emptyOrNullString())));
     }
 
     @Test

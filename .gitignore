@@ -2,6 +2,8 @@
 .gradle/
 build/
 !gradle/wrapper/gradle-wrapper.jar
+.env
+**/postman/
 
 ### IntelliJ IDEA ###
 .idea/
