@@ -3,6 +3,7 @@ package connect.company_service.company.service;
 import connect.company_service.client.hub.HubClient;
 import connect.company_service.client.hub.HubValidator;
 import connect.company_service.client.hub.dto.StockDeleteRequest;
+import connect.company_service.client.user.UserValidator;
 import connect.company_service.company.dto.request.AssignManagerRequest;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.InternalCreateCompanyRequest;
@@ -67,6 +68,10 @@ class CompanyServiceTest {
     // 업체 삭제 시 상품 일괄 soft delete를 위임하는 대상
     @Mock
     private ProductService productService;
+
+    // 관리자 지정 대상이 업체 소속인지 User Service로 확인하는 객체
+    @Mock
+    private UserValidator userValidator;
 
     @InjectMocks
     private CompanyService companyService;
@@ -492,37 +497,62 @@ class CompanyServiceTest {
         private final AssignManagerRequest request = new AssignManagerRequest(managerId);
 
         @Test
-        @DisplayName("관리자가 지정되지 않은 업체면 요청한 사용자가 관리자로 지정된다")
+        @DisplayName("MASTER가 업체 소속 사용자를 지정하면 관리자로 지정된다")
         void assign() {
             Company company = createUnassignedCompany(companyId, "스파르타 업체");
-            given(companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
 
-            CompanyResponse response = companyService.assignManager(companyId, request);
+            CompanyResponse response = companyService.assignManager(companyId, userId, ROLE_MASTER, request);
+
+            verify(userValidator).validateCompanyMember(userId, ROLE_MASTER, managerId, companyId);
+            assertThat(company.getUserId()).isEqualTo(managerId);
+            assertThat(response.userId()).isEqualTo(managerId);
+        }
+
+        @Test
+        @DisplayName("이미 관리자가 있으면 요청한 사용자로 변경된다")
+        void assignAlreadyAssigned() {
+            Company company = createCompany(companyId, "스파르타 업체");
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+            CompanyResponse response = companyService.assignManager(companyId, userId, ROLE_MASTER, request);
 
             assertThat(company.getUserId()).isEqualTo(managerId);
             assertThat(response.userId()).isEqualTo(managerId);
         }
 
         @Test
-        @DisplayName("이미 관리자가 있으면 예외 없이 기존 관리자를 유지한다")
-        void assignAlreadyAssigned() {
-            Company company = createCompany(companyId, "스파르타 업체");
-            given(companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+        @DisplayName("MASTER가 아니면 COMPANY_ACCESS_DENIED 예외가 발생하고 업체·사용자를 조회하지 않는다")
+        void assignByUser() {
+            Throwable thrown = catchThrowable(() -> companyService.assignManager(companyId, userId, ROLE_USER, request));
 
-            CompanyResponse response = companyService.assignManager(companyId, request);
-
-            assertThat(company.getUserId()).isEqualTo(userId);
-            assertThat(response.userId()).isEqualTo(userId);
+            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
+            verifyNoInteractions(companyRepository, userValidator);
         }
 
         @Test
-        @DisplayName("업체가 없으면 COMPANY_NOT_FOUND 예외가 발생한다")
+        @DisplayName("업체가 없으면 COMPANY_NOT_FOUND 예외가 발생하고 사용자를 조회하지 않는다")
         void assignNotFound() {
-            given(companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.empty());
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.empty());
 
-            Throwable thrown = catchThrowable(() -> companyService.assignManager(companyId, request));
+            Throwable thrown = catchThrowable(() -> companyService.assignManager(companyId, userId, ROLE_MASTER, request));
 
             assertBaseException(thrown, ErrorCode.COMPANY_NOT_FOUND);
+            verifyNoInteractions(userValidator);
+        }
+
+        @Test
+        @DisplayName("대상이 업체 소속이 아니면 예외가 전파되고 관리자가 바뀌지 않는다")
+        void assignNotMember() {
+            Company company = createUnassignedCompany(companyId, "스파르타 업체");
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+            willThrow(new BaseException(ErrorCode.COMPANY_MANAGER_NOT_MEMBER))
+                    .given(userValidator).validateCompanyMember(userId, ROLE_MASTER, managerId, companyId);
+
+            Throwable thrown = catchThrowable(() -> companyService.assignManager(companyId, userId, ROLE_MASTER, request));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_MANAGER_NOT_MEMBER);
+            assertThat(company.getUserId()).isNull();
         }
     }
 

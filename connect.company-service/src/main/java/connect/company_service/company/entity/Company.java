@@ -51,7 +51,7 @@ public class Company extends BaseEntity {
         this.address = address;
     }
 
-    // 관리자 미지정 업체에 처음 연결된 사용자를 관리자로 지정
+    // MASTER가 지정한 사용자를 관리자로 지정 (기존 관리자가 있으면 변경)
     public void assignManager(UUID userId) {
         this.userId = userId;
     }
