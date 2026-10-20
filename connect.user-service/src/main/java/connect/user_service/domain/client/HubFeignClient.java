@@ -2,9 +2,6 @@ package connect.user_service.domain.client;
 
 import connect.user_service.domain.client.Api.HubFeignApi;
 import connect.user_service.domain.client.clientinterface.HubClient;
-import connect.user_service.domain.user.dto.request.StockAdjustRequest;
-import connect.user_service.domain.user.dto.request.StockDecreaseRequest;
-import connect.user_service.domain.user.dto.request.StockRestoreRequest;
 import connect.user_service.domain.user.dto.response.HubInfo;
 import connect.user_service.global.exception.BaseException;
 import connect.user_service.global.exception.ErrorCode;
