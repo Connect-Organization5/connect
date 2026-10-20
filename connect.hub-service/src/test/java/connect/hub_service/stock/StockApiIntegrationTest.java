@@ -46,9 +46,14 @@ class StockApiIntegrationTest {
 
     private static final UUID SEOUL = HubSeedData.hubs().get(0).id();
     private static final UUID BUSAN = HubSeedData.hubs().get(3).id();
-    // Company 응답은 Mock이다. 서울 업체는 서울 허브, 부산 업체는 부산 허브 소속이다.
+    // Company 응답은 Mock이다. 서울 업체는 서울 허브, 부산 업체는 부산 허브 소속이며 각각 관리자가 있다.
     private static final UUID SEOUL_COMPANY = UUID.randomUUID();
     private static final UUID BUSAN_COMPANY = UUID.randomUUID();
+    private static final UUID SEOUL_MANAGER = UUID.randomUUID();
+    private static final UUID BUSAN_MANAGER = UUID.randomUUID();
+    // MASTER 요청자, 어느 업체의 관리자도 아닌 USER 요청자
+    private static final UUID MASTER_USER = UUID.randomUUID();
+    private static final UUID OTHER_USER = UUID.randomUUID();
 
     @Autowired
     MockMvc mockMvc;
@@ -67,9 +72,9 @@ class StockApiIntegrationTest {
     void seedHubs() {
         hubSeedLoader.load();
         given(companyClient.getCompany(SEOUL_COMPANY))
-                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(SEOUL_COMPANY, SEOUL)));
+                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(SEOUL_COMPANY, SEOUL_MANAGER, SEOUL)));
         given(companyClient.getCompany(BUSAN_COMPANY))
-                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(BUSAN_COMPANY, BUSAN)));
+                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(BUSAN_COMPANY, BUSAN_MANAGER, BUSAN)));
         given(companyClient.getProduct(any(), any()))
                 .willAnswer(invocation -> ApiResponse.ok("상품이 조회되었습니다.", new ProductInfo(invocation.getArgument(1))));
     }
@@ -99,12 +104,21 @@ class StockApiIntegrationTest {
         return register(role, BUSAN.equals(hubId) ? BUSAN_COMPANY : SEOUL_COMPANY, hubId, productId, quantity);
     }
 
+    // 요청자는 역할에 맞춰 고른다(MASTER면 MASTER 사용자, 그 외는 어느 업체의 관리자도 아닌 사용자).
     private ResultActions register(String role, UUID companyId, UUID hubId, UUID productId, Object quantity) throws Exception {
+        return registerAs("MASTER".equals(role) ? MASTER_USER : OTHER_USER, role, companyId, hubId, productId, quantity);
+    }
+
+    private ResultActions registerAs(UUID userId, String role, UUID companyId, UUID hubId, UUID productId, Object quantity)
+            throws Exception {
         String body = "{\"companyId\":" + (companyId == null ? "null" : "\"" + companyId + "\"")
                 + ",\"hubId\":" + (hubId == null ? "null" : "\"" + hubId + "\"")
                 + ",\"productId\":" + (productId == null ? "null" : "\"" + productId + "\"")
                 + ",\"quantity\":" + quantity + "}";
         var request = post("/hubs/stocks").contentType(MediaType.APPLICATION_JSON).content(body);
+        if (userId != null) {
+            request.header("X-User-Id", userId);
+        }
         if (role != null) {
             request.header("X-User-Role", role);
         }
@@ -141,16 +155,42 @@ class StockApiIntegrationTest {
     }
 
     @Test
-    void MASTER가_아니면_403이다() throws Exception {
+    void 업체_관리자가_아닌_USER는_403이다() throws Exception {
         UUID product = newProduct();
 
         register("USER", SEOUL, product, 10)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false));
 
-        Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from p_stocks where product_id = ?", Integer.class, product);
-        assertThat(count).isZero();
+        assertNoStock(product);
+    }
+
+    @Test
+    void 업체_관리자는_자기_업체_상품의_재고를_등록한다() throws Exception {
+        UUID product = newProduct();
+
+        registerAs(SEOUL_MANAGER, "USER", SEOUL_COMPANY, SEOUL, product, 10)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.hubId").value(SEOUL.toString()))
+                .andExpect(jsonPath("$.data.quantity").value(10));
+    }
+
+    @Test
+    void 다른_업체의_관리자는_403이다() throws Exception {
+        UUID product = newProduct();
+
+        registerAs(BUSAN_MANAGER, "USER", SEOUL_COMPANY, SEOUL, product, 10)
+                .andExpect(status().isForbidden());
+        assertNoStock(product);
+    }
+
+    @Test
+    void 업체_관리자도_소속_허브가_아니면_409이다() throws Exception {
+        UUID product = newProduct();
+
+        registerAs(SEOUL_MANAGER, "USER", SEOUL_COMPANY, BUSAN, product, 10)
+                .andExpect(status().isConflict());
+        assertNoStock(product);
     }
 
     @Test
@@ -161,13 +201,20 @@ class StockApiIntegrationTest {
     }
 
     @Test
+    void 사용자_ID_헤더가_없으면_400이다() throws Exception {
+        registerAs(null, "MASTER", SEOUL_COMPANY, SEOUL, newProduct(), 10)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("필수 헤더가 누락되었습니다. (X-User-Id)"));
+    }
+
+    @Test
     void 음수_수량과_필수값_누락은_400이다() throws Exception {
         register("MASTER", SEOUL, newProduct(), -1).andExpect(status().isBadRequest());
         register("MASTER", SEOUL, newProduct(), "null").andExpect(status().isBadRequest());
         register("MASTER", null, newProduct(), 1).andExpect(status().isBadRequest());
         register("MASTER", SEOUL, null, 1).andExpect(status().isBadRequest());
         register("MASTER", null, SEOUL, newProduct(), 1).andExpect(status().isBadRequest());
-        mockMvc.perform(post("/hubs/stocks").header("X-User-Role", "MASTER")
+        mockMvc.perform(post("/hubs/stocks").header("X-User-Id", MASTER_USER).header("X-User-Role", "MASTER")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"hubId\":\"abc\",\"productId\":\"def\",\"quantity\":1}"))
                 .andExpect(status().isBadRequest());
@@ -274,15 +321,15 @@ class StockApiIntegrationTest {
         // Company CompanyResponse의 실제 필드(id, userId, hubId, name, address, createdAt). 필요 없는 필드는 무시한다.
         String json = """
                 {"success":true,"message":"업체가 조회되었습니다.","data":{
-                  "id":"%s","userId":null,"hubId":"%s","name":"업체","address":"주소","createdAt":"2026-10-19T10:00:00"
+                  "id":"%s","userId":"%s","hubId":"%s","name":"업체","address":"주소","createdAt":"2026-10-19T10:00:00"
                 },"timestamp":"2026-10-19T10:00:00"}
-                """.formatted(SEOUL_COMPANY, SEOUL);
+                """.formatted(SEOUL_COMPANY, SEOUL_MANAGER, SEOUL);
 
         ApiResponse<CompanyInfo> response = jsonMapper.readValue(json, new TypeReference<ApiResponse<CompanyInfo>>() {
         });
 
         assertThat(response.getSuccess()).isTrue();
-        assertThat(response.getData()).isEqualTo(new CompanyInfo(SEOUL_COMPANY, SEOUL));
+        assertThat(response.getData()).isEqualTo(new CompanyInfo(SEOUL_COMPANY, SEOUL_MANAGER, SEOUL));
     }
 
     private void assertNoStock(UUID productId) {
