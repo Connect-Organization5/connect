@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -25,5 +26,11 @@ public class InternalUserController {
     public ResponseEntity<ApiResponse<UserResponse>> sendUser(@PathVariable UUID userId) {
         UserResponse response = userService.sendUser(userId);
         return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.ok("회원 정보를 조회했습니다.", response));
+    }
+
+    @GetMapping("/hub/{departureHubId}/delivery-users")
+    public ApiResponse<List<UUID>> getHubDeliveryUserIds(@PathVariable UUID departureHubId) {
+        List<UUID> response = userService.getHubDeliveryUserIds(departureHubId);
+        return ApiResponse.ok("소속 허브 사용자들을 조회했습니다.", response);
     }
 }

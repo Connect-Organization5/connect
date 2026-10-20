@@ -1,4 +1,4 @@
-package connect.delivery_service.client;
+package connect.delivery_service.client.hub;
 
 import connect.delivery_service.global.dto.ApiResponse;
 import org.springframework.cloud.openfeign.FeignClient;

@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -248,6 +249,11 @@ public class UserService {
         // Hub 목록 추가하기
 
         return map;
+    }
+
+    @Transactional(readOnly = true)
+    public List<UUID> getHubDeliveryUserIds(UUID departureHubId) {
+        return userRepository.findIdsByAffiliationAndRole(AffiliationType.HUB, departureHubId, UserRole.USER);
     }
 }
 

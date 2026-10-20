@@ -77,6 +77,53 @@ class DeliveryTest {
         }
 
         @Test
+        @DisplayName("담당자가 없으면 허브 출발 불가, 상태 유지")
+        void startHubMovingWithoutDeliveryUser() {
+            Delivery unassigned = Delivery.createDelivery(UUID.randomUUID(), ordererId,
+                    UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+
+            assertThatThrownBy(unassigned::startHubMoving)
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.DELIVERY_USER_NOT_ASSIGNED);
+            assertThat(unassigned.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_WAITING);
+        }
+
+        @Test
+        @DisplayName("담당자를 배정하면 허브 출발 가능")
+        void startHubMovingAfterAssign() {
+            Delivery unassigned = Delivery.createDelivery(UUID.randomUUID(), ordererId,
+                    UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+            unassigned.assignDeliveryUserId(deliveryUserId);
+
+            unassigned.startHubMoving();
+
+            assertThat(unassigned.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_MOVING);
+        }
+
+        @Test
+        @DisplayName("담당자가 없어도 취소는 가능")
+        void cancelWithoutDeliveryUser() {
+            Delivery unassigned = Delivery.createDelivery(UUID.randomUUID(), ordererId,
+                    UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+
+            unassigned.cancel();
+
+            assertThat(unassigned.getDeliveryStatus()).isEqualTo(DeliveryStatus.CANCELED);
+        }
+
+        @Test
+        @DisplayName("상태 검증이 먼저: 취소된 미배정 배송은 INVALID_DELIVERY_STATUS")
+        void statusCheckedBeforeAssignment() {
+            Delivery unassigned = Delivery.createDelivery(UUID.randomUUID(), ordererId,
+                    UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+            unassigned.cancel();
+
+            assertThatThrownBy(unassigned::startHubMoving)
+                    .isInstanceOf(BaseException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
+        }
+
+        @Test
         @DisplayName("같은 전이를 두 번 하면 예외")
         void duplicateTransition() {
             delivery.startHubMoving();
