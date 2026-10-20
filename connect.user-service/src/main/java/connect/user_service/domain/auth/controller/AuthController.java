@@ -2,7 +2,7 @@ package connect.user_service.domain.auth.controller;
 
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
-import connect.user_service.domain.user.dto.response.UpdateUserResponse;
+import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.dto.ApiResponse;
@@ -17,6 +17,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Slf4j
 @RestController
 @RequestMapping("/auth")
@@ -27,10 +30,16 @@ public class AuthController {
 
     private final UserService userService;
 
+    @GetMapping("/signup")
+    public ResponseEntity<ApiResponse<Map<String, ?>>> signup() {
+        Map<String, ?> companyAndHub = userService.signup();
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.ok("새로운 회원님, 반갑습니다.", companyAndHub));
+    }
+
     // 로그인 없이 회원가입 (USER 권한으로 생성, 토큰은 발급하지 않으므로 가입 후 /auth/login 으로 로그인)
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<UpdateUserResponse>> signup(@Valid @RequestBody SignUpRequestDto requestDto) {
-        UpdateUserResponse response = userService.signup(requestDto);
+    public ResponseEntity<ApiResponse<UserResponse>> signup(@Valid @RequestBody SignUpRequestDto requestDto) {
+        UserResponse response = userService.signup(requestDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("회원가입이 완료되었습니다.", response));
     }
 

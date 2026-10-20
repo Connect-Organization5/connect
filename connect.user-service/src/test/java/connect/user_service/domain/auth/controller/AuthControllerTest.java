@@ -3,7 +3,7 @@ package connect.user_service.domain.auth.controller;
 import connect.user_service.global.security.JwtUtil;
 import connect.user_service.domain.user.dto.request.LoginRequestDto;
 import connect.user_service.domain.user.dto.request.SignUpRequestDto;
-import connect.user_service.domain.user.dto.response.UpdateUserResponse;
+import connect.user_service.domain.user.dto.response.UserResponse;
 import connect.user_service.domain.user.entity.AffiliationType;
 import connect.user_service.domain.user.entity.User;
 import connect.user_service.domain.user.entity.UserRole;
@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,6 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthControllerTest {
 
     private static final UUID AFFILIATION_ID = UUID.fromString("00000000-0000-0000-0000-000000001000");
+    private static final LocalDateTime CREATED_AT = LocalDateTime.of(2026, 1, 1, 9, 0);
 
     // 테스트용 고정 UUID (idOf(1) → 00000000-0000-0000-0000-000000000001)
     private static UUID idOf(long no) {
@@ -97,7 +99,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/signup - 로그인 없이 성공 시 201 과 생성된 회원 정보 반환, 요청 값을 그대로 전달하고 토큰은 발급하지 않음")
     void signup_success() throws Exception {
         // given
-        UpdateUserResponse response = new UpdateUserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1");
+        UserResponse response = new UserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
         given(userService.signup(any(SignUpRequestDto.class))).willReturn(response);
 
         // when & then
@@ -126,7 +128,7 @@ class AuthControllerTest {
     void signup_ignoresRoleInRequest() throws Exception {
         // given
         String body = VALID_BODY.replace("\"slackId\": \"slack-1\"", "\"slackId\": \"slack-1\", \"role\": \"MASTER\"");
-        UpdateUserResponse response = new UpdateUserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1");
+        UserResponse response = new UserResponse(idOf(2), "tester", "tester@test.com", AffiliationType.COMPANY, AFFILIATION_ID, "slack-1", CREATED_AT);
         given(userService.signup(any(SignUpRequestDto.class))).willReturn(response);
 
         // when & then
