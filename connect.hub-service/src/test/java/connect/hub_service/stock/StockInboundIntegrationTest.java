@@ -1,7 +1,14 @@
 package connect.hub_service.stock;
 
+import connect.hub_service.client.company.CompanyClient;
+import connect.hub_service.client.company.dto.CompanyInfo;
+import connect.hub_service.client.company.dto.ProductInfo;
+import connect.hub_service.global.dto.ApiResponse;
 import connect.hub_service.hub.seed.HubSeedData;
 import connect.hub_service.hub.seed.HubSeedLoader;
+import feign.FeignException;
+import feign.Request;
+import feign.Response;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,12 +17,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -24,6 +34,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -37,6 +49,14 @@ class StockInboundIntegrationTest {
 
     private static final UUID SEOUL = HubSeedData.hubs().get(0).id();
     private static final UUID BUSAN = HubSeedData.hubs().get(3).id();
+    // Company 응답은 Mock이다. 서울 업체는 서울 허브, 부산 업체는 부산 허브 소속이며 각각 관리자가 있다.
+    private static final UUID SEOUL_COMPANY = UUID.randomUUID();
+    private static final UUID BUSAN_COMPANY = UUID.randomUUID();
+    private static final UUID SEOUL_MANAGER = UUID.randomUUID();
+    private static final UUID BUSAN_MANAGER = UUID.randomUUID();
+    // MASTER 요청자, 어느 업체의 관리자도 아닌 USER 요청자
+    private static final UUID MASTER_USER = UUID.randomUUID();
+    private static final UUID OTHER_USER = UUID.randomUUID();
 
     private record TestStock(UUID id, UUID hubId, UUID productId) {
     }
@@ -47,12 +67,20 @@ class StockInboundIntegrationTest {
     HubSeedLoader hubSeedLoader;
     @Autowired
     JdbcTemplate jdbcTemplate;
+    @MockitoBean
+    CompanyClient companyClient;
 
     private final List<UUID> createdProducts = new ArrayList<>();
 
     @BeforeEach
     void seedHubs() {
         hubSeedLoader.load();
+        given(companyClient.getCompany(SEOUL_COMPANY))
+                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(SEOUL_COMPANY, SEOUL_MANAGER, SEOUL)));
+        given(companyClient.getCompany(BUSAN_COMPANY))
+                .willReturn(ApiResponse.ok("업체가 조회되었습니다.", new CompanyInfo(BUSAN_COMPANY, BUSAN_MANAGER, BUSAN)));
+        given(companyClient.getProduct(any(), any()))
+                .willAnswer(invocation -> ApiResponse.ok("상품이 조회되었습니다.", new ProductInfo(invocation.getArgument(1))));
     }
 
     @AfterEach
@@ -79,18 +107,32 @@ class StockInboundIntegrationTest {
         return jdbcTemplate.queryForObject("select quantity from p_stocks where id = ?", Integer.class, stockId);
     }
 
+    // 요청자는 역할에 맞춰 고른다(MASTER면 MASTER 사용자, 그 외는 어느 업체의 관리자도 아닌 사용자).
     private ResultActions inbound(String role, String body) throws Exception {
+        return inboundAs("MASTER".equals(role) ? MASTER_USER : OTHER_USER, role, body);
+    }
+
+    private ResultActions inboundAs(UUID userId, String role, String body) throws Exception {
         MockHttpServletRequestBuilder request = post("/hubs/stocks/inbound")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body);
+        if (userId != null) {
+            request.header("X-User-Id", userId);
+        }
         if (role != null) {
             request.header("X-User-Role", role);
         }
         return mockMvc.perform(request);
     }
 
+    // 업체는 허브에 맞춰 고른다(부산 허브면 부산 업체, 그 외는 서울 업체).
     private static String body(Object hubId, Object productId, String quantityJson) {
-        return "{\"hubId\":" + json(hubId) + ",\"productId\":" + json(productId) + ",\"quantity\":" + quantityJson + "}";
+        return body(BUSAN.equals(hubId) ? BUSAN_COMPANY : SEOUL_COMPANY, hubId, productId, quantityJson);
+    }
+
+    private static String body(Object companyId, Object hubId, Object productId, String quantityJson) {
+        return "{\"companyId\":" + json(companyId) + ",\"hubId\":" + json(hubId) + ",\"productId\":" + json(productId)
+                + ",\"quantity\":" + quantityJson + "}";
     }
 
     private static String json(Object value) {
@@ -149,12 +191,73 @@ class StockInboundIntegrationTest {
     }
 
     @Test
-    void MASTER가_아니면_403이고_수량은_그대로다() throws Exception {
+    void 업체_관리자가_아닌_USER는_403이고_수량은_그대로다() throws Exception {
         TestStock stock = createStock(100);
 
         inbound("USER", stock, "50").andExpect(status().isForbidden()).andExpect(jsonPath("$.success").value(false));
 
         assertThat(quantityOf(stock.id())).isEqualTo(100);
+    }
+
+    @Test
+    void 업체_관리자는_자기_업체_상품의_재고에_입고한다() throws Exception {
+        TestStock stock = createStock(100);
+
+        inboundAs(SEOUL_MANAGER, "USER", body(SEOUL_COMPANY, SEOUL, stock.productId(), "30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.quantity").value(130));
+    }
+
+    @Test
+    void 다른_업체의_관리자는_403이고_수량은_그대로다() throws Exception {
+        TestStock stock = createStock(100);
+
+        inboundAs(BUSAN_MANAGER, "USER", body(SEOUL_COMPANY, SEOUL, stock.productId(), "30"))
+                .andExpect(status().isForbidden());
+
+        assertThat(quantityOf(stock.id())).isEqualTo(100);
+    }
+
+    @Test
+    void 업체의_소속_허브가_아닌_재고는_409이다() throws Exception {
+        TestStock busan = createStock(BUSAN, UUID.randomUUID(), 10);
+
+        inbound("MASTER", body(SEOUL_COMPANY, BUSAN, busan.productId(), "5"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("요청한 허브가 업체의 소속 허브와 일치하지 않습니다."));
+
+        assertThat(quantityOf(busan.id())).isEqualTo(10);
+    }
+
+    @Test
+    void 없는_업체는_404이다() throws Exception {
+        TestStock stock = createStock(100);
+        UUID company = UUID.randomUUID();
+        given(companyClient.getCompany(company)).willThrow(notFound());
+
+        inbound("MASTER", body(company, SEOUL, stock.productId(), "5"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("업체를 찾을 수 없습니다."));
+
+        assertThat(quantityOf(stock.id())).isEqualTo(100);
+    }
+
+    @Test
+    void 업체_ID나_사용자_ID_헤더가_없으면_400이다() throws Exception {
+        TestStock stock = createStock(100);
+
+        inbound("MASTER", body(null, SEOUL, stock.productId(), "5")).andExpect(status().isBadRequest());
+        inboundAs(null, "MASTER", body(SEOUL, stock.productId(), "5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("필수 헤더가 누락되었습니다. (X-User-Id)"));
+
+        assertThat(quantityOf(stock.id())).isEqualTo(100);
+    }
+
+    private static FeignException notFound() {
+        Request request = Request.create(Request.HttpMethod.GET, "/companies", Map.of(), null, StandardCharsets.UTF_8, null);
+        Response response = Response.builder().status(404).reason("Not Found").request(request).headers(Map.of()).build();
+        return FeignException.errorStatus("CompanyClient", response);
     }
 
     @Test
