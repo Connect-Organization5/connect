@@ -28,6 +28,7 @@ public class DeliveryRouteResponse {
     private Integer estimatedDuration;
     private BigDecimal actualDistance;
     private Integer actualDuration;
+    private LocalDateTime departedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -43,6 +44,7 @@ public class DeliveryRouteResponse {
                 deliveryRoute.getEstimatedDuration(),
                 deliveryRoute.getActualDistance(),
                 deliveryRoute.getActualDuration(),
+                deliveryRoute.getDepartedAt(),
                 deliveryRoute.getCreatedAt(),
                 deliveryRoute.getUpdatedAt()
         );
