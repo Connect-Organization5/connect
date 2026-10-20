@@ -23,6 +23,7 @@ ext {
 }
 
 dependencies {
+    implementation 'io.github.openfeign:feign-micrometer'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
     implementation 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'

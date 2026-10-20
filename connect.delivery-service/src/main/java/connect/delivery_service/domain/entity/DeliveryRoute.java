@@ -8,6 +8,8 @@ import lombok.*;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Getter
@@ -47,6 +49,9 @@ public class DeliveryRoute extends BaseEntity {
 
     private Integer actualDuration;
 
+    // 허브 출발 시각 (도착 시 실제 소요시간 계산에 사용)
+    private LocalDateTime departedAt;
+
     public static DeliveryRoute createDeliveryRoute(UUID deliveryId, UUID deliveryUserId, UUID departureHubId, UUID arrivalHubId,
                                                BigDecimal estimatedDistance, Integer estimatedDuration) {
         return DeliveryRoute.builder()
@@ -62,16 +67,19 @@ public class DeliveryRoute extends BaseEntity {
                 .build();
     }
 
-    public void startMoving(){
+    public void startMoving(LocalDateTime departedAt){
         validateDeliveryRouteStatus(DeliveryRouteStatus.WAITING);
         this.deliveryRouteStatus = DeliveryRouteStatus.MOVING;
+        this.departedAt = departedAt;
     }
 
-    public void complete(BigDecimal actualDistance, Integer actualDuration) {
+    // 실제 소요시간(분) = 허브 출발 ~ 도착
+    public void complete(BigDecimal actualDistance, LocalDateTime arrivedAt) {
         validateDeliveryRouteStatus(DeliveryRouteStatus.MOVING);
         this.deliveryRouteStatus = DeliveryRouteStatus.ARRIVED;
         this.actualDistance = actualDistance;
-        this.actualDuration = actualDuration;
+        // 출발 시각 기록 전에 출발한 경로는 소요시간을 알 수 없음
+        this.actualDuration = departedAt == null ? null : (int) Duration.between(departedAt, arrivedAt).toMinutes();
     }
 
     public void cancel(){

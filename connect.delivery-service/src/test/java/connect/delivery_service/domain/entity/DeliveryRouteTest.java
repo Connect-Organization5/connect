@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,21 +41,34 @@ class DeliveryRouteTest {
     class StatusTransition {
 
         @Test
-        @DisplayName("정상 흐름: WAITING -> MOVING -> ARRIVED, 도착 시 실제 이동거리/소요시간 기록")
+        @DisplayName("정상 흐름: WAITING -> MOVING -> ARRIVED, 실제 소요시간 = 허브 출발 ~ 도착(분)")
         void fullFlow() {
-            deliveryRoute.startMoving();
+            LocalDateTime departedAt = LocalDateTime.of(2026, 10, 20, 9, 0);
+            deliveryRoute.startMoving(departedAt);
             assertThat(deliveryRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.MOVING);
+            assertThat(deliveryRoute.getDepartedAt()).isEqualTo(departedAt);
 
-            deliveryRoute.complete(BigDecimal.valueOf(13.2), 35);
+            deliveryRoute.complete(BigDecimal.valueOf(13.2), departedAt.plusMinutes(35).plusSeconds(40));
             assertThat(deliveryRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.ARRIVED);
             assertThat(deliveryRoute.getActualDistance()).isEqualByComparingTo("13.2");
             assertThat(deliveryRoute.getActualDuration()).isEqualTo(35);
         }
 
         @Test
+        @DisplayName("출발 시각 기록 전에 출발한 경로는 실제 소요시간을 null 로 둠")
+        void completeWithoutDepartedAt() {
+            deliveryRoute.startMoving(null);
+
+            deliveryRoute.complete(BigDecimal.TEN, LocalDateTime.now());
+
+            assertThat(deliveryRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.ARRIVED);
+            assertThat(deliveryRoute.getActualDuration()).isNull();
+        }
+
+        @Test
         @DisplayName("출발 전에는 도착 처리 불가, 실제 기록도 남지 않음")
         void completeBeforeStart() {
-            assertThatThrownBy(() -> deliveryRoute.complete(BigDecimal.TEN, 10))
+            assertThatThrownBy(() -> deliveryRoute.complete(BigDecimal.TEN, LocalDateTime.now()))
                     .isInstanceOf(BaseException.class)
                     .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
             assertThat(deliveryRoute.getActualDistance()).isNull();
@@ -64,10 +78,10 @@ class DeliveryRouteTest {
         @Test
         @DisplayName("도착 후에는 다시 출발 불가")
         void startAfterArrived() {
-            deliveryRoute.startMoving();
-            deliveryRoute.complete(BigDecimal.TEN, 10);
+            deliveryRoute.startMoving(LocalDateTime.now());
+            deliveryRoute.complete(BigDecimal.TEN, LocalDateTime.now());
 
-            assertThatThrownBy(() -> deliveryRoute.startMoving())
+            assertThatThrownBy(() -> deliveryRoute.startMoving(LocalDateTime.now()))
                     .isInstanceOf(BaseException.class)
                     .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DELIVERY_STATUS);
         }
@@ -88,7 +102,7 @@ class DeliveryRouteTest {
         @Test
         @DisplayName("이동 중에는 취소 불가")
         void cancelWhenMoving() {
-            deliveryRoute.startMoving();
+            deliveryRoute.startMoving(LocalDateTime.now());
 
             assertThatThrownBy(() -> deliveryRoute.cancel())
                     .isInstanceOf(BaseException.class)
@@ -114,7 +128,7 @@ class DeliveryRouteTest {
         @Test
         @DisplayName("이동 중에는 담당자 변경 불가")
         void changeWhenMoving() {
-            deliveryRoute.startMoving();
+            deliveryRoute.startMoving(LocalDateTime.now());
 
             assertThatThrownBy(() -> deliveryRoute.changeDeliveryUserId(UUID.randomUUID()))
                     .isInstanceOf(BaseException.class)

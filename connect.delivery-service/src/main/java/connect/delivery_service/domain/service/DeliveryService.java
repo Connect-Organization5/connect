@@ -23,10 +23,12 @@ import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Slf4j
@@ -78,6 +80,17 @@ public class DeliveryService {
         return PagedResponse.from(page.map(DeliveryResponse::from));
     }
 
+    @Transactional(readOnly = true)
+    public PagedResponse<DeliveryResponse> getUnassignedDeliveries(UUID affiliationId, AffiliationType affiliationType, Pageable pageable) {
+        if (affiliationType != AffiliationType.HUB) {
+            throw new BaseException(ErrorCode.DELIVERY_ACCESS_DENIED);
+        }
+        Page<Delivery> page = deliveryRepository.findAllByDeliveryUserIdIsNullAndDeliveryStatusAndDepartureHubId(
+                DeliveryStatus.HUB_WAITING, affiliationId, pageable
+        );
+        return PagedResponse.from(page.map(DeliveryResponse::from));
+    }
+
     // 배송 경로 기록 조회
     @Transactional(readOnly = true)
     public DeliveryRouteResponse getDeliveryRoute(UUID deliveryId, UUID userId, RoleType role) {
@@ -95,32 +108,31 @@ public class DeliveryService {
     }
 
     // 배송 상태 변경
-    public void startHubMoving(UUID deliveryId, UUID userId) {
-        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId);
+    public void startHubMoving(UUID deliveryId, UUID userId, RoleType role) {
+        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId, role);
         DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId)
                 .orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
 
         delivery.startHubMoving();
-        deliveryRoute.startMoving();
+        deliveryRoute.startMoving(LocalDateTime.now());
     }
 
-    public void arriveAtDestinationHub(UUID deliveryId, UUID userId) {
-        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId);
+    public void arriveAtDestinationHub(UUID deliveryId, UUID userId, RoleType role, BigDecimal actualDistance) {
+        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId, role);
         DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId)
                 .orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
 
-        // 실제 이동거리, 소요시간 임시값
-        deliveryRoute.complete(BigDecimal.valueOf(18), 18);
+        deliveryRoute.complete(actualDistance, LocalDateTime.now());
         delivery.arrivedHub();
     }
 
-    public void startDelivery(UUID deliveryId, UUID userId) {
-        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId);
+    public void startDelivery(UUID deliveryId, UUID userId, RoleType role) {
+        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId, role);
         delivery.startDelivery();
     }
 
-    public void completeDelivery(UUID deliveryId, UUID userId) {
-        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId);
+    public void completeDelivery(UUID deliveryId, UUID userId, RoleType role) {
+        Delivery delivery = checkForDeliveryStatusUpdate(deliveryId, userId, role);
         delivery.complete();
     }
 
@@ -166,11 +178,15 @@ public class DeliveryService {
     }
 
     // 배송 담당자 배정 (요청한 본인이 배정)
-    public DeliveryResponse assignDeliveryUserId(UUID deliveryId, UUID userId, AffiliationType affiliationType) {
+    public DeliveryResponse assignDeliveryUserId(UUID deliveryId, UUID userId, UUID affiliationId, AffiliationType affiliationType) {
         if (affiliationType != AffiliationType.HUB) {
             throw new BaseException(ErrorCode.DELIVERY_ACCESS_DENIED);
         }
         Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
+        // 출발 허브 소속만 배정 가능
+        if (!affiliationId.equals(delivery.getDepartureHubId())) {
+            throw new BaseException(ErrorCode.DELIVERY_HUB_MISMATCH);
+        }
         delivery.assignDeliveryUserId(userId);
 
         DeliveryRoute deliveryRoute = deliveryRouteRepository.findByDeliveryId(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_ROUTE_NOT_FOUND));
@@ -224,9 +240,9 @@ public class DeliveryService {
         return response.getData();
     }
 
-    private Delivery checkForDeliveryStatusUpdate(UUID deliveryId, UUID userId) {
+    private Delivery checkForDeliveryStatusUpdate(UUID deliveryId, UUID userId, RoleType roleType) {
         Delivery delivery = deliveryRepository.findById(deliveryId).orElseThrow(() -> new BaseException(ErrorCode.DELIVERY_NOT_FOUND));
-        if (!delivery.isManagedBy(userId)) {
+        if (!(delivery.isManagedBy(userId) || roleType == RoleType.MASTER)) {
             throw new BaseException(ErrorCode.DELIVERY_NOT_FOUND);
         }
         return delivery;

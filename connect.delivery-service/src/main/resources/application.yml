@@ -24,10 +24,11 @@ eureka:
 
 jwt:
   secret: ${JWT_SECRET}
-#management:
-#  zipkin:
-#    tracing:
-#      endpoint: "http://localhost:9411/api/v2/spans"
-#  tracing:
-#    sampling:
-#      probability: 1.0
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0   # 개발용: 요청 100% 기록
+    export:
+      zipkin:
+        endpoint: http://localhost:9411/api/v2/spans

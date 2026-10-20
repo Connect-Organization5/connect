@@ -2,6 +2,7 @@ package connect.delivery_service.domain.controller.docs;
 
 import connect.delivery_service.client.user.AffiliationType;
 import connect.delivery_service.client.user.RoleType;
+import connect.delivery_service.domain.dto.ArriveHubRequest;
 import connect.delivery_service.domain.dto.ChangeDeliveryUserRequest;
 import connect.delivery_service.domain.dto.ChangeReceiverRequest;
 import connect.delivery_service.domain.dto.DeliveryResponse;
@@ -66,72 +67,101 @@ public interface DeliveryControllerDocs {
             @Parameter(in = ParameterIn.HEADER, name = "X-User-Affiliation-Type", required = true, description = "요청 사용자 소속", example = "HUB") AffiliationType affiliationType);
 
     @Operation(
+            summary = "담당자 미배정 배송 목록 조회",
+            description = """
+                    요청자 소속 허브에서 출발하는, 담당자가 없고 `HUB_WAITING` 인 배송 목록입니다.
+                    시스템 자동 배정에서 미배정으로 남은 배송을 찾아 본인 배정할 때 사용합니다.
+
+                    **권한**: `HUB` 소속만
+
+                    **페이징**: `size` 는 10, 30, 50 만 허용 (그 외 값은 10). `sort` 는 `createdAt` 또는 `updatedAt` + `,asc|desc` (기본 `createdAt,desc`)
+                    """,
+            security = @SecurityRequirement(name = GATEWAY_AUTH))
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "HUB 소속이 아님 (DELIVERY_ACCESS_DENIED)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    ResponseEntity<ApiResponse<PagedResponse<DeliveryResponse>>> getUnassignedDeliveries(
+            @ParameterObject DeliverySearchCondition cond,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Affiliation-Id", required = true, description = "요청 사용자 소속 허브 ID") UUID affiliationId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Affiliation-Type", required = true, description = "요청 사용자 소속", example = "HUB") AffiliationType affiliationType);
+
+    @Operation(
             summary = "허브 출발",
             description = """
                     `HUB_WAITING` → `HUB_MOVING`. 배송 경로도 `WAITING` → `MOVING` 으로 바뀝니다.
 
-                    **권한**: 배송 담당자 본인만. 담당자가 배정되지 않은 배송은 출발할 수 없습니다.
+                    **권한**: 배송 담당자 본인 또는 `MASTER`. 담당자가 배정되지 않은 배송은 출발할 수 없습니다.
                     """,
             security = @SecurityRequirement(name = GATEWAY_AUTH))
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "처리 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자가 아님 (DELIVERY_NOT_FOUND), 배송 경로 없음 (DELIVERY_ROUTE_NOT_FOUND)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자·MASTER 가 아님 (DELIVERY_NOT_FOUND), 배송 경로 없음 (DELIVERY_ROUTE_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "현재 상태에서 처리 불가 (INVALID_DELIVERY_STATUS), 담당자 미배정 (DELIVERY_USER_NOT_ASSIGNED)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     ResponseEntity<ApiResponse<Void>> startHubMoving(
             @Parameter(description = "배송 ID") UUID deliveryId,
-            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID") UUID userId);
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID (MASTER 는 담당자가 아니어도 가능)") UUID userId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true, description = "요청 사용자 권한", example = "USER") RoleType role);
 
     @Operation(
             summary = "목적지 허브 도착",
             description = """
-                    `HUB_MOVING` → `DEST_HUB_ARRIVED`. 배송 경로는 `ARRIVED` 가 되고 실제 거리·소요시간이 기록됩니다.
+                    `HUB_MOVING` → `DEST_HUB_ARRIVED`. 배송 경로는 `ARRIVED` 가 됩니다.
 
-                    **권한**: 배송 담당자 본인만
+                    - 실제 이동거리(km): 요청 본문 `actualDistance` 로 입력
+                    - 실제 소요시간(분): 허브 출발 ~ 도착 시각으로 자동 계산
+
+                    **권한**: 배송 담당자 본인 또는 `MASTER`
                     """,
             security = @SecurityRequirement(name = GATEWAY_AUTH))
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "처리 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자가 아님 (DELIVERY_NOT_FOUND), 배송 경로 없음 (DELIVERY_ROUTE_NOT_FOUND)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자·MASTER 가 아님 (DELIVERY_NOT_FOUND), 배송 경로 없음 (DELIVERY_ROUTE_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "현재 상태에서 처리 불가 (INVALID_DELIVERY_STATUS)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     ResponseEntity<ApiResponse<Void>> arriveAtDestinationHub(
             @Parameter(description = "배송 ID") UUID deliveryId,
-            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID") UUID userId);
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID (MASTER 는 담당자가 아니어도 가능)") UUID userId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true, description = "요청 사용자 권한", example = "USER") RoleType role,
+            ArriveHubRequest request);
 
     @Operation(
             summary = "업체 배송 출발",
-            description = "`DEST_HUB_ARRIVED` → `OUT_FOR_DELIVERY`.\n\n**권한**: 배송 담당자 본인만",
+            description = "`DEST_HUB_ARRIVED` → `OUT_FOR_DELIVERY`.\n\n**권한**: 배송 담당자 본인 또는 `MASTER`",
             security = @SecurityRequirement(name = GATEWAY_AUTH))
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "처리 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자가 아님 (DELIVERY_NOT_FOUND)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자·MASTER 가 아님 (DELIVERY_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "현재 상태에서 처리 불가 (INVALID_DELIVERY_STATUS)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     ResponseEntity<ApiResponse<Void>> startDelivery(
             @Parameter(description = "배송 ID") UUID deliveryId,
-            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID") UUID userId);
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID (MASTER 는 담당자가 아니어도 가능)") UUID userId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true, description = "요청 사용자 권한", example = "USER") RoleType role);
 
     @Operation(
             summary = "배송 완료",
-            description = "`OUT_FOR_DELIVERY` → `DELIVERED`.\n\n**권한**: 배송 담당자 본인만",
+            description = "`OUT_FOR_DELIVERY` → `DELIVERED`.\n\n**권한**: 배송 담당자 본인 또는 `MASTER`",
             security = @SecurityRequirement(name = GATEWAY_AUTH))
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "처리 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자가 아님 (DELIVERY_NOT_FOUND)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송이거나 담당자·MASTER 가 아님 (DELIVERY_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "현재 상태에서 처리 불가 (INVALID_DELIVERY_STATUS)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     ResponseEntity<ApiResponse<Void>> completeDelivery(
             @Parameter(description = "배송 ID") UUID deliveryId,
-            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID") UUID userId);
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배송 담당자 ID (MASTER 는 담당자가 아니어도 가능)") UUID userId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true, description = "요청 사용자 권한", example = "USER") RoleType role);
 
     @Operation(
             summary = "배송 담당자 배정 (본인)",
@@ -139,12 +169,12 @@ public interface DeliveryControllerDocs {
                     요청한 사용자 본인을 배송과 배송 경로의 담당자로 배정합니다.
                     시스템 자동 배정에서 미배정으로 남은 배송을 허브 담당자가 직접 가져갈 때 사용합니다.
 
-                    **권한**: `HUB` 소속만. `HUB_WAITING` 상태이고 담당자가 없을 때만 가능합니다.
+                    **권한**: 배송의 **출발 허브 소속**(`HUB`)만. `HUB_WAITING` 상태이고 담당자가 없을 때만 가능합니다.
                     """,
             security = @SecurityRequirement(name = GATEWAY_AUTH))
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "배정 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "HUB 소속이 아님 (DELIVERY_ACCESS_DENIED)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "HUB 소속이 아님 (DELIVERY_ACCESS_DENIED), 출발 허브 소속이 아님 (DELIVERY_HUB_MISMATCH)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 배송 (DELIVERY_NOT_FOUND), 배송 경로 없음 (DELIVERY_ROUTE_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -154,6 +184,7 @@ public interface DeliveryControllerDocs {
     ResponseEntity<ApiResponse<DeliveryResponse>> assignDeliveryUserId(
             @Parameter(description = "배송 ID") UUID deliveryId,
             @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "배정받을 사용자 ID (본인)") UUID userId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Affiliation-Id", required = true, description = "요청 사용자 소속 허브 ID") UUID affiliationId,
             @Parameter(in = ParameterIn.HEADER, name = "X-User-Affiliation-Type", required = true, description = "요청 사용자 소속", example = "HUB") AffiliationType affiliationType);
 
     @Operation(
