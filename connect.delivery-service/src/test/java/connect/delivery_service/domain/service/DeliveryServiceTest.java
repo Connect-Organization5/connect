@@ -2,10 +2,11 @@ package connect.delivery_service.domain.service;
 
 import connect.delivery_service.global.exception.BaseException;
 import connect.delivery_service.global.exception.ErrorCode;
-import connect.delivery_service.client.AffiliationType;
-import connect.delivery_service.client.HubClient;
-import connect.delivery_service.client.HubRouteResponse;
-import connect.delivery_service.client.RoleType;
+import connect.delivery_service.client.user.AffiliationType;
+import connect.delivery_service.client.hub.HubClient;
+import connect.delivery_service.client.hub.HubRouteResponse;
+import connect.delivery_service.client.user.RoleType;
+import connect.delivery_service.client.user.UserClient;
 import connect.delivery_service.domain.dto.CreateDeliveryRequest;
 import connect.delivery_service.domain.dto.DeliveryResponse;
 import connect.delivery_service.domain.entity.Delivery;
@@ -13,6 +14,7 @@ import connect.delivery_service.domain.entity.DeliveryRoute;
 import connect.delivery_service.domain.entity.DeliveryRouteStatus;
 import connect.delivery_service.domain.entity.DeliveryStatus;
 import connect.delivery_service.domain.repository.DeliveryRepository;
+import connect.delivery_service.domain.repository.DeliveryRepositoryCustomImpl.DriverLoad;
 import connect.delivery_service.domain.repository.DeliveryRouteRepository;
 import connect.delivery_service.global.dto.ApiResponse;
 import feign.FeignException;
@@ -30,6 +32,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,6 +57,9 @@ class DeliveryServiceTest {
 
     @Mock
     private HubClient hubClient;
+
+    @Mock
+    private UserClient userClient;
 
     @InjectMocks
     private DeliveryService deliveryService;
@@ -110,6 +117,23 @@ class DeliveryServiceTest {
                     .willReturn(ApiResponse.ok("이동 경로 조회 성공", hubRoute));
         }
 
+        // user-service 의 허브 배송 담당자 목록과 담당자별 배송 부하를 mock 으로 넣는다
+        private void givenHubDeliveryUsers(List<UUID> userIds, DriverLoad... loads) {
+            given(userClient.getHubDeliveryUserIds(request.getDepartureHubId()))
+                    .willReturn(ApiResponse.ok("허브 배송 담당자 목록을 조회했습니다.", userIds));
+            Map<UUID, DriverLoad> loadMap = new java.util.HashMap<>();
+            for (DriverLoad load : loads) {
+                loadMap.put(load.userId(), load);
+            }
+            given(deliveryRepository.findDriverLoads(userIds)).willReturn(loadMap);
+        }
+
+        private DeliveryRoute captureSavedRoute() {
+            ArgumentCaptor<DeliveryRoute> routeCaptor = ArgumentCaptor.forClass(DeliveryRoute.class);
+            verify(deliveryRouteRepository).save(routeCaptor.capture());
+            return routeCaptor.getValue();
+        }
+
         private FeignException hubError(int status) {
             Request feignRequest = Request.create(Request.HttpMethod.GET, "/hubs/routes", Map.of(),
                     null, StandardCharsets.UTF_8, null);
@@ -122,6 +146,7 @@ class DeliveryServiceTest {
         void createNew() {
             given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
             givenHubRoute(new BigDecimal("123.45"), 95);
+            givenHubDeliveryUsers(List.of(deliveryUserId));
 
             DeliveryResponse response = deliveryService.createDelivery(request);
 
@@ -133,7 +158,7 @@ class DeliveryServiceTest {
             verify(deliveryRouteRepository).save(routeCaptor.capture());
             DeliveryRoute savedRoute = routeCaptor.getValue();
             assertThat(savedRoute.getDeliveryRouteStatus()).isEqualTo(DeliveryRouteStatus.WAITING);
-            assertThat(savedRoute.getDeliveryUserId()).isNull();
+            assertThat(savedRoute.getDeliveryUserId()).isEqualTo(deliveryUserId);
         }
 
         @Test
@@ -141,6 +166,7 @@ class DeliveryServiceTest {
         void saveEstimatedValuesFromHub() {
             given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
             givenHubRoute(new BigDecimal("123.45"), 95);
+            givenHubDeliveryUsers(List.of(deliveryUserId));
 
             deliveryService.createDelivery(request);
 
@@ -200,7 +226,119 @@ class DeliveryServiceTest {
 
             assertThat(response.getId()).isEqualTo(deliveryId);
             verify(deliveryRepository, never()).save(any());
-            verifyNoInteractions(deliveryRouteRepository, hubClient);
+            verifyNoInteractions(deliveryRouteRepository, hubClient, userClient);
+        }
+
+        @Nested
+        @DisplayName("배송 담당자 시스템 배정")
+        class AutoAssign {
+
+            private final UUID driverA = UUID.randomUUID();
+            private final UUID driverB = UUID.randomUUID();
+            private final UUID driverC = UUID.randomUUID();
+            private final LocalDateTime now = LocalDateTime.now();
+
+            @BeforeEach
+            void setUp() {
+                given(deliveryRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+                givenHubRoute(BigDecimal.TEN, 30);
+            }
+
+            @Test
+            @DisplayName("출발 허브의 배송 담당자 목록으로 조회")
+            void queryByDepartureHub() {
+                givenHubDeliveryUsers(List.of(driverA));
+
+                deliveryService.createDelivery(request);
+
+                verify(userClient).getHubDeliveryUserIds(request.getDepartureHubId());
+            }
+
+            @Test
+            @DisplayName("진행 중인 배송이 가장 적은 담당자를 배정")
+            void leastActiveDeliveries() {
+                givenHubDeliveryUsers(List.of(driverA, driverB, driverC),
+                        new DriverLoad(driverA, 3, now.minusHours(5)),
+                        new DriverLoad(driverB, 1, now.minusMinutes(1)),
+                        new DriverLoad(driverC, 2, now.minusHours(10)));
+
+                DeliveryResponse response = deliveryService.createDelivery(request);
+
+                assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+            }
+
+            @Test
+            @DisplayName("진행 중인 배송 수가 같으면 마지막 배송이 더 오래된 담당자를 배정")
+            void tieBreakByOldestLastDelivery() {
+                givenHubDeliveryUsers(List.of(driverA, driverB),
+                        new DriverLoad(driverA, 2, now.minusMinutes(10)),
+                        new DriverLoad(driverB, 2, now.minusHours(3)));
+
+                DeliveryResponse response = deliveryService.createDelivery(request);
+
+                assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+            }
+
+            @Test
+            @DisplayName("배송 이력이 없는 담당자가 있으면 그 담당자를 우선 배정")
+            void driverWithoutHistoryFirst() {
+                // driverC 는 배송 이력이 없어서 findDriverLoads 결과에 없음
+                givenHubDeliveryUsers(List.of(driverA, driverB, driverC),
+                        new DriverLoad(driverA, 0, now.minusDays(1)),
+                        new DriverLoad(driverB, 1, now.minusDays(2)));
+
+                DeliveryResponse response = deliveryService.createDelivery(request);
+
+                assertThat(response.getDeliveryUserId()).isEqualTo(driverC);
+            }
+
+            @Test
+            @DisplayName("완료된 배송만 있는 담당자(진행 중 0건)는 이력이 없는 담당자보다 뒤")
+            void driverWithOnlyFinishedDeliveries() {
+                givenHubDeliveryUsers(List.of(driverA, driverB),
+                        new DriverLoad(driverA, 0, now.minusDays(1)));
+
+                DeliveryResponse response = deliveryService.createDelivery(request);
+
+                assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+            }
+
+            @Test
+            @DisplayName("출발 허브에 배송 담당자가 없으면 미배정으로 생성")
+            void noDriverInHub() {
+                given(userClient.getHubDeliveryUserIds(request.getDepartureHubId()))
+                    .willReturn(ApiResponse.ok("허브 배송 담당자 목록을 조회했습니다.", List.of()));
+
+                DeliveryResponse response = deliveryService.createDelivery(request);
+
+                assertThat(response.getDeliveryUserId()).isNull();
+                assertThat(response.getDeliveryStatus()).isEqualTo(DeliveryStatus.HUB_WAITING);
+                assertThat(captureSavedRoute().getDeliveryUserId()).isNull();
+                verify(deliveryRepository, never()).findDriverLoads(any());
+            }
+
+            @Test
+            @DisplayName("user-service 호출이 실패하면 미배정으로 생성")
+            void userServiceError() {
+                given(userClient.getHubDeliveryUserIds(request.getDepartureHubId())).willThrow(hubError(503));
+
+                DeliveryResponse response = deliveryService.createDelivery(request);
+
+                assertThat(response.getDeliveryUserId()).isNull();
+                assertThat(captureSavedRoute().getDeliveryUserId()).isNull();
+            }
+
+            @Test
+            @DisplayName("배송과 배송 경로에 같은 담당자를 배정")
+            void sameDriverOnDeliveryAndRoute() {
+                givenHubDeliveryUsers(List.of(driverA, driverB),
+                        new DriverLoad(driverA, 1, now.minusHours(1)));
+
+                DeliveryResponse response = deliveryService.createDelivery(request);
+
+                assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+                assertThat(captureSavedRoute().getDeliveryUserId()).isEqualTo(driverB);
+            }
         }
     }
 

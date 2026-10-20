@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -208,6 +209,11 @@ public class UserService {
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
         return UpdateUserResponse.from(user);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UUID> getHubDeliveryUserIds(UUID departureHubId) {
+        return userRepository.findIdsByAffiliationAndRole(AffiliationType.HUB, departureHubId, UserRole.USER);
     }
 }
 
