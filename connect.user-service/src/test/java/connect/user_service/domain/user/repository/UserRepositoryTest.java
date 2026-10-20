@@ -165,7 +165,7 @@ class UserRepositoryTest {
         assertThat(saved.getDeletedAt()).isNull();
     }
 
-    // ===== 같은 소속 회원 목록 조회 =====
+    // ===== 회원 목록 조회 =====
 
     private User member(String username, UserRole role, AffiliationType affiliationType, UUID affiliationId) {
         return new User(username, "encodedPw", username + "@test.com", role, affiliationType, affiliationId, "slack-" + username);
@@ -180,54 +180,54 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("같은 소속의 USER, MASTER 모두 조회 - 다른 소속과 삭제된 회원은 제외")
-    void findAllByAffiliation_filters() {
+    @DisplayName("소속과 관계없이 USER, MASTER 모두 조회 - 삭제된 회원은 제외")
+    void findAllOrderByRole_filters() {
         // given
         User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
         User user1 = userRepository.saveAndFlush(member("user1", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
-        userRepository.saveAndFlush(member("otherType", UserRole.USER, AffiliationType.HUB, AFFILIATION_ID));
-        userRepository.saveAndFlush(member("otherId", UserRole.USER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID));
+        User otherType = userRepository.saveAndFlush(member("otherType", UserRole.USER, AffiliationType.HUB, AFFILIATION_ID));
+        User otherId = userRepository.saveAndFlush(member("otherId", UserRole.USER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID));
         User deleted = userRepository.saveAndFlush(member("deleted", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
         userRepository.softDeleteById(deleted.getId(), idOf(1), LocalDateTime.now());
 
         // when
-        Page<User> result = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(0, 10));
+        Page<User> result = userRepository.findAllOrderByRole(UserRole.MASTER, PageRequest.of(0, 10));
 
         // then
         assertThat(result.getContent()).extracting(User::getId)
-                .containsExactlyInAnyOrder(master.getId(), user1.getId());
-        assertThat(result.getTotalElements()).isEqualTo(2);
+                .containsExactlyInAnyOrder(master.getId(), user1.getId(), otherType.getId(), otherId.getId());
+        assertThat(result.getTotalElements()).isEqualTo(4);
     }
 
     @Test
-    @DisplayName("잠금 조회 - 같은 소속의 MASTER 만 조회, USER, 다른 소속, 삭제된 MASTER 는 제외")
-    void findAllByAffiliationAndRoleForUpdate_filters() {
+    @DisplayName("잠금 조회 - 소속과 관계없이 MASTER 만 조회, USER, 삭제된 MASTER 는 제외")
+    void findAllByRoleForUpdate_filters() {
         // given
         User master1 = userRepository.saveAndFlush(member("master1", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
         User master2 = userRepository.saveAndFlush(member("master2", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
         userRepository.saveAndFlush(member("user1", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
-        userRepository.saveAndFlush(member("otherType", UserRole.MASTER, AffiliationType.HUB, AFFILIATION_ID));
-        userRepository.saveAndFlush(member("otherId", UserRole.MASTER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID));
+        User otherType = userRepository.saveAndFlush(member("otherType", UserRole.MASTER, AffiliationType.HUB, AFFILIATION_ID));
+        User otherId = userRepository.saveAndFlush(member("otherId", UserRole.MASTER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID));
         User deleted = userRepository.saveAndFlush(member("deleted", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
         userRepository.softDeleteById(deleted.getId(), idOf(1), LocalDateTime.now());
 
         // when
-        List<User> result = userRepository.findAllByAffiliationAndRoleForUpdate(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER);
+        List<User> result = userRepository.findAllByRoleForUpdate(UserRole.MASTER);
 
         // then
         assertThat(result).extracting(User::getId)
-                .containsExactlyInAnyOrder(master1.getId(), master2.getId());
+                .containsExactlyInAnyOrder(master1.getId(), master2.getId(), otherType.getId(), otherId.getId());
     }
 
     @Test
-    @DisplayName("정렬 - MASTER 먼저, 그다음 createdAt 내림차순, createdAt 이 없는 회원은 마지막")
-    void findAllByAffiliation_sort() {
-        // given: id 순서와 created_at 순서를 일부러 다르게 설정
+    @DisplayName("정렬 - 소속과 관계없이 MASTER 먼저, 그다음 createdAt 내림차순, createdAt 이 없는 회원은 마지막")
+    void findAllOrderByRole_sort() {
+        // given: id 순서와 created_at 순서를 일부러 다르게 설정, 일부는 다른 소속
         User oldMaster = userRepository.saveAndFlush(member("oldMaster", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
-        User newUser = userRepository.saveAndFlush(member("newUser", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User newUser = userRepository.saveAndFlush(member("newUser", UserRole.USER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID));
         User legacyUser = userRepository.saveAndFlush(member("legacyUser", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
         User oldUser = userRepository.saveAndFlush(member("oldUser", UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID));
-        User newMaster = userRepository.saveAndFlush(member("newMaster", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
+        User newMaster = userRepository.saveAndFlush(member("newMaster", UserRole.MASTER, AffiliationType.HUB, OTHER_AFFILIATION_ID));
 
         LocalDateTime base = LocalDateTime.of(2026, 1, 1, 0, 0);
         setCreatedAt(oldMaster.getId(), base);
@@ -238,7 +238,7 @@ class UserRepositoryTest {
         entityManager.clear();
 
         // when
-        Page<User> result = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(0, 10));
+        Page<User> result = userRepository.findAllOrderByRole(UserRole.MASTER, PageRequest.of(0, 10));
 
         // then
         assertThat(result.getContent()).extracting(User::getUsername)
@@ -247,8 +247,8 @@ class UserRepositoryTest {
 
     @Test
     @DisplayName("페이지 나누기 - 정렬 순서대로 나뉘고 totalElements, totalPages 가 맞음")
-    void findAllByAffiliation_paging() {
-        // given: 같은 소속 회원 5명 (MASTER 1, USER 4)
+    void findAllOrderByRole_paging() {
+        // given: 회원 5명 (MASTER 1, USER 4)
         LocalDateTime base = LocalDateTime.of(2026, 1, 1, 0, 0);
         User master = userRepository.saveAndFlush(member("master", UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID));
         setCreatedAt(master.getId(), base);
@@ -259,8 +259,8 @@ class UserRepositoryTest {
         entityManager.clear();
 
         // when
-        Page<User> first = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(0, 2));
-        Page<User> last = userRepository.findAllByAffiliation(AffiliationType.COMPANY, AFFILIATION_ID, UserRole.MASTER, PageRequest.of(2, 2));
+        Page<User> first = userRepository.findAllOrderByRole(UserRole.MASTER, PageRequest.of(0, 2));
+        Page<User> last = userRepository.findAllOrderByRole(UserRole.MASTER, PageRequest.of(2, 2));
 
         // then
         assertThat(first.getContent()).extracting(User::getUsername).containsExactly("master", "user4");
