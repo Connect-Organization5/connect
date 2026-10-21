@@ -116,7 +116,7 @@ public interface InternalStockControllerDocs {
             description = "주문의 차감(DECREASE)·조정(ADJUST)·복원(RESTORE) 이력을 처리 순서대로 조회합니다. 이력이 없으면 빈 목록입니다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "orderId 누락·형식 오류 (INVALID_INPUT)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "orderId 형식 오류(INVALID_INPUT), orderId 누락(UNSUPPORTED_REQUEST)",
                     content = @Content(schema = @Schema(implementation = ApiResponse.class)))
     })
     ApiResponse<StockHistoryResponse> getHistories(@Parameter(description = "주문 ID", required = true) UUID orderId);
