@@ -52,13 +52,18 @@ public class StockController implements StockControllerDocs {
         return ApiResponse.ok("재고 입고 성공", stockService.inbound(userId, role, request));
     }
 
-    // 재고별 입고 이력(최신순). 재고 조회와 같이 로그인 사용자 누구나 조회할 수 있다.
+    // 재고별 입고 이력(최신순). 등록·입고와 같이 MASTER 또는 해당 업체의 관리자만 조회할 수 있다.
+    // 업체 관리자는 companyId가 필요하다(MASTER는 생략 가능).
     @GetMapping("/{stockId}/inbounds")
     public ApiResponse<PagedResponse<StockInboundHistoryResponse>> getInbounds(
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role,
             @PathVariable UUID stockId,
+            @RequestParam(required = false) UUID companyId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.ok("재고 입고 이력 조회 성공", stockService.getInbounds(stockId, page, size));
+        return ApiResponse.ok("재고 입고 이력 조회 성공",
+                stockService.getInbounds(userId, role, stockId, companyId, page, size));
     }
 
     @GetMapping

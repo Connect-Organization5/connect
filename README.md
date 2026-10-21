@@ -30,8 +30,8 @@ B2B 물류에서는 주문, 재고, 배송이 서로 다른 조직과 시스템�
 | 목표 | 구현 |
 | --- | --- |
 | 도메인 분리 | 사용자, 업체·상품, 허브·재고, 주문, 배송을 독립된 서비스와 DB로 분리. 다른 서비스의 데이터는 DB가 아닌 API로만 조회 |
-| 일관된 인증·인가 | Gateway에서 JWT를 한 번 검증하고 사용자 정보를 헤더로 전달해, 모든 서비스가 같은 기준으로 권한 판단 |
-| 실패에 강한 주문 처리 | 재고 차감 → 배송 생성 → 알림 중 실패하면 보상 호출로 앞 단계를 되돌림. 주요 내부 API는 재시도해도 한 번만 반영되도록 멱등 설계 |
+| 일관된 인증·인가 | Gateway에서 JWT를 한 번 검증하고 사용자 정보를 헤더로 전달해, 각 서비스가 같은 사용자 정보로 권한 판단 (User Service는 JWT를 자체 재검증) |
+| 실패에 강한 주문 처리 | 재고 차감 → 배송 생성 중 실패하면 보상 호출(배송 취소·재고 복원)로 앞 단계를 되돌림. 주요 내부 API는 재시도해도 한 번만 반영되도록 멱등 설계. Slack 알림은 주문 생성 후 비동기로 보내며, 알림 실패는 주문 결과에 영향을 주지 않음 |
 | 추적 가능성 | Zipkin 분산 추적으로 한 요청이 여러 서비스를 거치는 흐름 확인 |
 
 <br>
@@ -40,7 +40,7 @@ B2B 물류에서는 주문, 재고, 배송이 서로 다른 조직과 시스템�
 
 | 팀원 | 담당 | 주요 작업 |
 | --- | --- | --- |
-| 김효진 | Product | 상품 CRUD와 검색, 업체 관리자 권한 처리, 주문용 상품 검증 내부 API, Gateway 헤더 전달|
+| 김효진 | Product | 상품 CRUD와 검색, Gateway가 전달한 `X-User-*` 헤더 기반 업체 관리자 권한 검증, 주문·재고 연동을 위한 상품 조회 API, Gateway의 JWT 사용자 정보 헤더 전달 |
 | 장수현 | Company | 업체 CRUD와 검색, MASTER 업체 등록·관리자 지정, 업체 삭제 시 상품·재고 연쇄 삭제 |
 | 이안근 | Order | 주문 생성·수정·삭제 흐름 조율, 보상 처리, 재고 재조정 순번 관리, Slack 비동기 알림 |
 | 조민영 | Delivery | 배송·배송 경로 기록 생성·수정·삭제, 조회와 검색, 담당자 자동 배정, 상태 전이 |
@@ -76,7 +76,7 @@ flowchart LR
     Client([Client]) -->|JWT| GW[API Gateway :8080]
     GW -. 서비스 조회 .-> EU[(Eureka Server :8761)]
 
-    GW --> US[User :19090]
+    GW --> US[User :8081]
     GW --> CS[Company :8082]
     GW --> HS[Hub :8083]
     GW --> OS[Order :8084]
@@ -113,13 +113,223 @@ flowchart LR
 
 https://dbdiagram.io/d/6acc859c27cfb7f1bcdd5c07
 
+```mermaid
+erDiagram
+    %% ===== User DB =====
+    users {
+        uuid id PK
+        varchar username UK "NN"
+        varchar password "NN, BCrypt"
+        varchar email UK "NN"
+        role_type role "NN, MASTER or USER"
+        affiliation_type affiliation_type "NN, COMPANY or HUB"
+        uuid affiliation_id "NN, 논리 참조 (업체 또는 허브)"
+        varchar slack_id UK "NN"
+        timestamp created_at
+        uuid created_by
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    %% ===== Hub DB =====
+    p_hubs {
+        uuid id PK
+        varchar name "NN, 100"
+        varchar address "NN, 200"
+        timestamp created_at
+        uuid created_by
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    %% ===== Company DB =====
+    p_companies {
+        uuid id PK
+        uuid user_id "논리 참조, 업체 관리자 (NULL 허용)"
+        uuid hub_id "NN, 논리 참조, 생성 후 변경 불가"
+        varchar name "NN, 100"
+        varchar address "NN, 200"
+        timestamp created_at
+        uuid created_by
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    p_company_products {
+        uuid id PK
+        uuid company_id FK "NN"
+        varchar name "NN, 100"
+        varchar description "200"
+        decimal price "NN, 10,2"
+        timestamp created_at
+        uuid created_by
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    %% ===== Delivery DB =====
+    p_deliveries {
+        uuid id PK
+        uuid order_id UK "NN, 논리 참조"
+        uuid orderer_id "NN, 논리 참조"
+        uuid delivery_user_id "논리 참조, 미배정이면 NULL"
+        uuid departure_hub_id "NN, 논리 참조"
+        uuid arrival_hub_id "NN, 논리 참조"
+        delivery_status delivery_status "NN"
+        varchar delivery_address "NN, 200"
+        varchar receiver "NN, 50"
+        timestamp created_at "NN"
+        uuid created_by "NN"
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    p_delivery_routes {
+        uuid id PK
+        uuid delivery_id "NN, 같은 DB지만 FK 없음"
+        uuid delivery_user_id "논리 참조"
+        uuid departure_hub_id "NN, 논리 참조"
+        uuid arrival_hub_id "NN, 논리 참조"
+        delivery_route_status delivery_route_status "NN"
+        decimal estimated_distance "NN, 10,2"
+        int estimated_duration "NN"
+        decimal actual_distance "10,2"
+        int actual_duration
+        timestamp departed_at
+        timestamp created_at "NN"
+        uuid created_by "NN"
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    p_hub_routes {
+        uuid id PK
+        uuid departure_hub_id FK "NN, UK(departure_hub_id, arrival_hub_id)"
+        uuid arrival_hub_id FK "NN"
+        decimal distance "NN, 10,2"
+        int duration "NN"
+        timestamp created_at
+        uuid created_by
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    %% ===== Hub DB (재고) =====
+    p_stocks {
+        uuid id PK
+        uuid hub_id FK "NN, UK(hub_id, product_id)"
+        uuid product_id "NN, 논리 참조"
+        int quantity "NN, 0 이상"
+        timestamp created_at
+        uuid created_by
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    %% ===== Order DB =====
+    p_order {
+        uuid id PK
+        uuid requester_company_id "NN, 논리 참조 (업체 또는 허브)"
+        uuid supplier_company_id "NN, 논리 참조"
+        uuid product_id "NN, 논리 참조"
+        uuid delivery_id "논리 참조, 배송 생성 후 저장"
+        int quantity "NN"
+        varchar request_message "200"
+        varchar receiver "NN, 50"
+        order_status status "NN"
+        int stock_adjust_seq "NN, 기본 0"
+        timestamp created_at
+        uuid created_by
+        timestamp updated_at
+        uuid updated_by
+        timestamp deleted_at
+        uuid deleted_by
+    }
+
+    p_stock_inbounds {
+        uuid id PK
+        uuid inbound_id UK "NN, 입고 멱등 키"
+        uuid stock_id FK "NN"
+        int quantity "NN, 0 초과"
+        uuid inbound_by "NN, 입고 요청자"
+        timestamp created_at "NN, 입고 일시"
+    }
+
+    p_stock_histories {
+        uuid id PK
+        uuid order_id "NN, 논리 참조"
+        uuid stock_id FK "NN"
+        stock_history_type type "NN, DECREASE or ADJUST or RESTORE"
+        uuid idempotency_key "NN, UK(type, idempotency_key)"
+        int quantity
+        int quantity_delta
+        timestamp created_at "NN"
+    }
+
+    %% ----- 물리적 FK (같은 서비스 DB, 실선) -----
+    p_companies ||--o{ p_company_products : "company_id FK"
+    p_hubs ||--o{ p_hub_routes : "departure_hub_id FK"
+    p_hubs ||--o{ p_hub_routes : "arrival_hub_id FK"
+    p_hubs ||--o{ p_stocks : "hub_id FK"
+    p_stocks ||--o{ p_stock_inbounds : "stock_id FK"
+    p_stocks ||--o{ p_stock_histories : "stock_id FK"
+
+    %% ----- 논리 참조 (UUID만 저장, DB FK 없음, 점선) -----
+    p_hubs ||..o{ p_companies : "hub_id 논리 참조"
+    users |o..o{ p_companies : "user_id 논리 참조"
+    p_companies ||..o{ users : "affiliation_id 논리 참조 (COMPANY)"
+    p_hubs ||..o{ users : "affiliation_id 논리 참조 (HUB)"
+    p_company_products ||..o{ p_stocks : "product_id 논리 참조"
+    p_companies ||..o{ p_order : "requester_company_id 논리 참조"
+    p_companies ||..o{ p_order : "supplier_company_id 논리 참조"
+    p_company_products ||..o{ p_order : "product_id 논리 참조"
+    p_order ||..o| p_deliveries : "order_id, delivery_id 논리 참조"
+    p_order ||..o{ p_stock_histories : "order_id 논리 참조"
+    p_deliveries ||..o| p_delivery_routes : "delivery_id 논리 참조"
+    p_hubs ||..o{ p_deliveries : "departure_hub_id 논리 참조"
+    p_hubs ||..o{ p_deliveries : "arrival_hub_id 논리 참조"
+    users ||..o{ p_deliveries : "orderer_id 논리 참조"
+    users |o..o{ p_deliveries : "delivery_user_id 논리 참조"
+    p_hubs ||..o{ p_delivery_routes : "departure_hub_id 논리 참조"
+    p_hubs ||..o{ p_delivery_routes : "arrival_hub_id 논리 참조"
+    users |o..o{ p_delivery_routes : "delivery_user_id 논리 참조"
+    users ||..o{ p_stock_inbounds : "inbound_by 논리 참조"
+```
+
+| 서비스 DB | 테이블 |
+|---|---|
+| User (`connect_user`) | `users` |
+| Company (`connect_company`) | `p_companies`, `p_company_products` |
+| Hub (`connect_hub`) | `p_hubs`, `p_hub_routes`, `p_stocks`, `p_stock_inbounds`, `p_stock_histories` |
+| Order (`connect_order`) | `p_order` |
+| Delivery (`connect_delivery`) | `p_deliveries`, `p_delivery_routes` |
+
+- **실선**은 같은 서비스 DB 안의 물리적 FK, **점선**은 UUID만 저장하고 DB FK는 없는 **논리 참조**입니다. 서비스별로 DB가 분리되어 있어 다른 서비스 데이터는 API로 존재 여부를 확인합니다.
+- 표기: `NN` = NOT NULL, `UK` = UNIQUE, `UK(a, b)` = 복합 UNIQUE, 숫자 = 문자열 길이 또는 `decimal` 정밀도. 공통 컬럼 `deleted_at` / `deleted_by`로 Soft Delete를 기록합니다.
+
 ## 6. 서비스 구성
 
 | 모듈 | 서비스명 | 포트 | DB | 역할 |
 |---|---|---|---|---|
 | `connect.eureka-server` | eureka-server | 8761 | - | 서비스 등록·조회 |
 | `connect.eureka-gateway` | eureka-gateway | 8080 | - | 단일 진입점, JWT 검증, 라우팅, 통합 Swagger |
-| `connect.user-service` | user-service | 19090 | connect_user | 회원가입·로그인(JWT 발급), 회원 관리 |
+| `connect.user-service` | user-service | 8081 | connect_user | 회원가입·로그인(JWT 발급), 회원 관리 |
 | `connect.company-service` | company-service | 8082 | connect_company | 업체·상품 관리 |
 | `connect.hub-service` | hub-service | 8083 | connect_hub | 허브·허브 간 경로·재고 관리 |
 | `connect.order-service` | order-service | 8084 | connect_order | 주문 생성·수정·취소, Slack 알림 |
@@ -141,7 +351,9 @@ https://dbdiagram.io/d/6acc859c27cfb7f1bcdd5c07
 <details>
 <summary><b>Company · Product</b></summary>
 
-- 업체 CRUD: 생성은 MASTER, 수정·삭제는 MASTER 또는 업체 관리자. 업체의 소속 허브 존재 여부 검증(Hub 호출)
+- 업체 생성: MASTER만 가능, Hub Service에 조회해 소속 허브 존재 여부 검증
+- 업체 수정: MASTER 또는 해당 업체 관리자만 가능. 업체명·주소는 수정할 수 있고, 생성 이후 소속 허브(`hubId`)는 변경할 수 없음 (다른 허브로 변경 요청 시 `409 COMPANY_HUB_CHANGE_NOT_ALLOWED`)
+- 업체 삭제: MASTER 또는 해당 업체 관리자
 - 업체 관리자 지정: MASTER만 가능, 대상이 그 업체 소속 사용자인지 User에 조회해 확인
 - 상품 CRUD: 등록·수정·삭제는 업체 관리자 또는 MASTER
 - 업체·상품 삭제 시 Hub의 관련 재고 삭제 요청
@@ -160,10 +372,11 @@ https://dbdiagram.io/d/6acc859c27cfb7f1bcdd5c07
 <details>
 <summary><b>Order</b></summary>
 
-- 주문 생성: 상품 검증 → 재고 차감 → 배송 생성. 배송 생성 실패 시 재고 복원을 요청하고 주문을 `FAILED`로 기록 (복원 요청이 실패하면 로그만 남김)
-- 주문 수정: 수량 차이만큼 재고 조정, 수령인 변경
+- 주문 생성: 상품 검증 → 재고 차감 → 배송 생성. Hub가 재고를 거절하면(재고 부족·판매 중단·판매 준비 중) 주문을 `FAILED`로 기록하고 409 반환
+- 실패 보상: 배송 생성 실패 시 배송 취소 요청 → 재고 복원 요청 → 주문 `FAILED`. 재고 차감 호출 오류 시 재고 복원 요청, 주문 저장 실패 시 배송 취소·재고 복원 요청 (보상 요청이 실패하면 로그만 남김)
+- 주문 수정: 수량 차이만큼 재고 조정 후 수령인 변경, 수령인 변경이 실패하면 재고 조정을 되돌림 (되돌리기 실패 시 로그만 남김)
 - 주문 취소: 배송 취소 → 재고 복원 요청 → Soft Delete (재고 복원이 실패해도 주문은 취소되고 로그만 남김)
-- 내가 한 주문 / 내 업체가 받은 주문 조회, 주문 생성 시 Slack 알림(비동기)
+- 내가 한 주문 / 내 업체가 받은 주문 조회, 주문 생성 후 Slack 알림(비동기, 알림 실패는 주문 결과에 영향 없음)
 
 </details>
 
@@ -171,7 +384,7 @@ https://dbdiagram.io/d/6acc859c27cfb7f1bcdd5c07
 <summary><b>Delivery</b></summary>
 
 - 배송·배송 경로 생성: Hub 경로 조회로 예상 거리·시간 저장, 같은 주문은 한 번만 생성
-- 담당자 자동 배정: 출발 허브 소속 사용자 중 진행 중인 배송이 가장 적은 사람 (User 조회 실패·대상 없음이면 미배정)
+- 담당자 자동 배정: 같은 출발·도착 허브의 출발 전 배송을 맡은 담당자에게 묶어서 배정(구간당 최대 5건, 설정 가능), 없으면 출발 허브 소속 사용자 중 진행 중인 배송이 가장 적은 사람 (User 조회 실패·대상 없음이면 미배정)
 - 상태 전이: `HUB_WAITING → HUB_MOVING → DEST_HUB_ARRIVED → OUT_FOR_DELIVERY → DELIVERED` (대기 중에만 `CANCELED`), 배송 담당자 또는 MASTER가 처리
 - 허브 도착 시 실제 이동거리를 입력받고, 실제 소요시간은 허브 출발 ~ 도착 시각으로 자동 계산
 - 미배정 배송 목록 조회 후 출발 허브 소속 사용자가 본인을 담당자로 배정, MASTER의 담당자 변경
@@ -217,7 +430,7 @@ sequenceDiagram
 | 토큰 없이 통과 | `/auth/login`, `/auth/signup`, 통합 Swagger 문서 경로(`/docs/{서비스}/v3/api-docs`) |
 | 인증 실패 응답 | `401 {"code":"UNAUTHORIZED" \| "INVALID_TOKEN", "message": "..."}` |
 
-- Company·Hub·Order·Delivery는 JWT를 다시 파싱하지 않고 Gateway가 넣어 준 `X-User-*` 헤더로 권한을 판단합니다. 클라이언트가 직접 보낸 `X-User-*` 헤더는 Gateway가 제거하므로 위조할 수 없습니다.
+- Company·Hub·Order·Delivery는 JWT를 다시 파싱하지 않고 Gateway가 넣어 준 `X-User-*` 헤더로 권한을 판단합니다. Gateway를 거치는 요청에서는 클라이언트가 보낸 `X-User-*` 헤더를 Gateway가 제거하므로 위조할 수 없습니다.
 - User Service는 Gateway가 전달한 `Authorization` 헤더를 자체 Spring Security 필터(`JwtAuthorizationFilter`)로 다시 검증하고, DB에서 회원을 조회해 권한을 판단합니다. (`/auth/login`, `/auth/signup`, `/internal/**`는 인증 없이 허용)
 - **Gateway와 user-service는 같은 `JWT_SECRET_KEY`를 사용해야 합니다.**
 
@@ -237,12 +450,13 @@ sequenceDiagram
     O->>C: 주문자 소속 업체 / 상품 / 공급 업체 조회<br/>(허브 소속 주문자는 Hub 에서 허브 조회)
     O->>O: 주문 저장 (PENDING)
     O->>H: 재고 차감 (orderId 기준 멱등)
-    alt 재고 부족 (409/404)
-        O->>O: 주문 FAILED → 409 OUT_OF_STOCK
+    alt 재고 거절 (재고 부족·판매 중단·판매 준비 중)
+        O->>O: 주문 FAILED → 409
     else 차감 성공
         O->>D: 배송 생성 (/internal/deliveries)
         alt 배송 생성 실패
-            O->>H: 재고 복원 요청 (보상, 실패 시 로그만 남김)
+            O->>D: 배송 취소 요청 (보상)
+            O->>H: 재고 복원 요청 (보상)
             O->>O: 주문 FAILED → 500 DELIVERY_CREATE_FAILED
         else 성공
             O->>O: 주문 CREATED + deliveryId 저장
@@ -252,7 +466,9 @@ sequenceDiagram
 ```
 
 - 분산 트랜잭션(Saga 프레임워크, 메시지 브로커)은 사용하지 않고 **동기 호출 + 실패 시 보상 호출** 방식입니다.
-- 보상 호출(재고 복원·재조정)이 실패해도 재시도하지 않고 로그만 남기므로, 이 경우 재고는 수동으로 확인해야 합니다.
+- 재고 거절 시 응답 코드는 사유에 따라 `OUT_OF_STOCK`, `PRODUCT_DISCONTINUED`, `PRODUCT_NOT_READY`이며 모두 409입니다.
+- 재고 차감 호출 자체가 실패하면(결과를 알 수 없음) 재고 복원을 요청한 뒤 `500 STOCK_DECREASE_FAILED`, 주문 저장이 실패하면 배송 취소·재고 복원을 요청한 뒤 `500 ORDER_SAVE_FAILED`로 응답합니다.
+- 보상 호출(배송 취소·재고 복원·재조정)이 실패해도 재시도하지 않고 로그만 남기므로, 이 경우 배송과 재고는 수동으로 확인해야 합니다.
 - 주문 수정·취소는 배송이 `HUB_WAITING` 상태일 때만 가능합니다.
 
 ### 배송 상태 전이

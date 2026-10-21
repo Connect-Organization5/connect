@@ -7,6 +7,7 @@ import connect.delivery_service.global.exception.ErrorCode;
 import lombok.*;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity(name = "p_deliveries")
@@ -27,6 +28,9 @@ public class Delivery extends BaseEntity {
     private UUID ordererId;
 
     private UUID deliveryUserId;
+
+    // 현재 담당자가 배정(또는 변경)된 시각. 자동 배정의 "마지막 배정이 오래된 담당자" 기준으로 사용
+    private LocalDateTime assignedAt;
 
     @Column(nullable = false)
     private UUID departureHubId;
@@ -92,12 +96,14 @@ public class Delivery extends BaseEntity {
             throw new BaseException(ErrorCode.DELIVERY_USER_ALREADY_ASSIGNED);
         }
         this.deliveryUserId = deliveryUserId;
+        this.assignedAt = LocalDateTime.now();
     }
 
     // 담당자 변경
     public void changeDeliveryUserId(UUID deliveryUserId) {
         validateDeliveryStatus(DeliveryStatus.HUB_WAITING);
         this.deliveryUserId = deliveryUserId;
+        this.assignedAt = LocalDateTime.now();
     }
 
     // 수령인 변경

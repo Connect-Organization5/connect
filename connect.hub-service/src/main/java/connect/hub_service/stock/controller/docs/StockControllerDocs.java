@@ -22,7 +22,7 @@ import java.util.UUID;
 import static connect.hub_service.global.config.OpenApiConfig.GATEWAY_AUTH;
 
 // StockController 의 Swagger 문서 (동작은 StockController 에 있고 여기에는 설명만 둔다)
-@Tag(name = "Stock", description = "허브별 상품 재고 API (등록·입고는 X-User-Id / X-User-Role 헤더 필요)")
+@Tag(name = "Stock", description = "허브별 상품 재고 API (등록·입고·입고 이력 조회는 X-User-Id / X-User-Role 헤더 필요)")
 public interface StockControllerDocs {
 
     @Operation(
@@ -88,22 +88,36 @@ public interface StockControllerDocs {
     @Operation(
             summary = "재고 입고 이력 조회",
             description = """
-                    재고별 입고 이력을 최신순으로 조회합니다. 삭제된 재고의 이력도 조회할 수 있습니다.
+                    재고별 입고 이력을 최신순으로 조회합니다.
+
+                    - MASTER 는 company-service 를 호출하지 않고 조회하며, 삭제된 재고의 이력도 조회할 수 있습니다. `companyId` 는 생략할 수 있습니다.
+                    - 업체 관리자는 `companyId` 가 필요하고, 재고의 허브·상품으로 재고 등록과 같은 순서로 확인합니다: 업체 존재 → 권한 → 허브가 업체의 소속 허브인지 → 상품 존재
+                    - 업체 관리자는 삭제된 재고의 이력을 조회할 수 없습니다 (409).
 
                     **페이징**: `page` 는 0 이상, `size` 는 1~100
 
-                    **권한**: 별도 권한 검사 없음
+                    **권한**: `MASTER` 또는 해당 업체 관리자(`Company.userId == X-User-Id`)
                     """,
             security = @SecurityRequirement(name = GATEWAY_AUTH))
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "페이지 번호·크기 범위 오류(INVALID_PAGE), UUID 형식 오류(INVALID_INPUT)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "페이지 번호·크기 범위 오류(INVALID_PAGE), UUID 형식 오류(INVALID_INPUT), 필수 헤더 누락(MISSING_HEADER), "
+                            + "MASTER 가 아닌데 companyId 누락(COMPANY_ID_REQUIRED)",
                     content = @Content(schema = @Schema(implementation = ApiResponse.class))),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 재고 (STOCK_NOT_FOUND)",
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "MASTER 도 업체 관리자도 아님 (FORBIDDEN)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "없는 재고(STOCK_NOT_FOUND), 없는 업체(COMPANY_NOT_FOUND), 업체에 없는 상품(PRODUCT_NOT_FOUND)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "업체 관리자의 삭제된 재고 조회(STOCK_DELETED), 업체의 소속 허브가 아님(STOCK_HUB_MISMATCH)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "company-service 호출 실패 (COMPANY_SERVICE_UNAVAILABLE)",
                     content = @Content(schema = @Schema(implementation = ApiResponse.class)))
     })
     ApiResponse<PagedResponse<StockInboundHistoryResponse>> getInbounds(
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true, description = "요청 사용자 ID") UUID userId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true, description = "요청 사용자 권한", example = "MASTER") String role,
             @Parameter(description = "재고 ID") UUID stockId,
+            @Parameter(description = "업체 ID (MASTER 가 아니면 필수, 권한 확인용)") UUID companyId,
             @Parameter(description = "페이지 번호 (0부터)", example = "0") int page,
             @Parameter(description = "페이지 크기 (1~100)", example = "10") int size);
 

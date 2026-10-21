@@ -48,6 +48,9 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class StockService {
 
+    // Gateway가 JWT 검증 후 전달한 X-User-Role 값
+    private static final String MASTER = "MASTER";
+
     private static final Sort DEFAULT_SORT = Sort.by("createdAt").and(Sort.by("id"));
     private static final Sort INBOUND_SORT = Sort.by("createdAt").descending().and(Sort.by("id").descending());
 
@@ -146,12 +149,27 @@ public class StockService {
                 inbound.getQuantity(), stock.getQuantity(), true);
     }
 
-    // 재고별 입고 이력(최신순). 논리 삭제된 재고의 이력도 조회할 수 있다.
-    public PagedResponse<StockInboundHistoryResponse> getInbounds(UUID stockId, int page, int size) {
-        if (!stockRepository.existsById(stockId)) {
-            throw new BaseException(ErrorCode.STOCK_NOT_FOUND);
-        }
+    /**
+     * 재고별 입고 이력(최신순). 등록·입고와 같이 MASTER 또는 해당 업체의 관리자만 조회할 수 있다.
+     * MASTER는 Company를 호출하지 않으며 논리 삭제된 재고의 이력도 조회한다.
+     * 업체 관리자는 companyId가 필요하고, 재고의 허브·상품으로 등록·입고와 같은 확인(CompanyValidator)을 거친다.
+     * 삭제된 재고는 Company에서도 상품이 삭제된 상태라 업체 관리자는 조회할 수 없다(409).
+     */
+    public PagedResponse<StockInboundHistoryResponse> getInbounds(UUID userId, String role, UUID stockId, UUID companyId,
+                                                                  int page, int size) {
         PageRequest pageRequest = PageRequests.of(page, size, INBOUND_SORT);
+        boolean master = MASTER.equals(role);
+        if (!master && companyId == null) {
+            throw new BaseException(ErrorCode.COMPANY_ID_REQUIRED);
+        }
+        Stock stock = stockRepository.findById(stockId)
+                .orElseThrow(() -> new BaseException(ErrorCode.STOCK_NOT_FOUND));
+        if (!master) {
+            if (stock.getDeletedAt() != null) {
+                throw new BaseException(ErrorCode.STOCK_DELETED);
+            }
+            companyValidator.validateStockTarget(companyId, stock.getHub().getId(), stock.getProductId(), userId, role);
+        }
         return PagedResponse.from(stockInboundRepository.findByStockId(stockId, pageRequest)
                 .map(StockInboundHistoryResponse::from));
     }
