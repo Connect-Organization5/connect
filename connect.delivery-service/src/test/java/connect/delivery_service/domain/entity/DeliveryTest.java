@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -193,6 +194,21 @@ class DeliveryTest {
             assertThat(delivery.getDeliveryUserId()).isEqualTo(newDeliveryUserId);
             assertThat(delivery.isManagedBy(newDeliveryUserId)).isTrue();
             assertThat(delivery.isManagedBy(deliveryUserId)).isFalse();
+        }
+
+        @Test
+        @DisplayName("담당자 배정 시 배정 시각 기록, 변경하면 변경 시각으로 갱신")
+        void assignedAt() {
+            Delivery unassigned = Delivery.createDelivery(UUID.randomUUID(), ordererId,
+                    UUID.randomUUID(), UUID.randomUUID(), "홍길동", "서울시 강남구");
+            assertThat(unassigned.getAssignedAt()).isNull();
+
+            unassigned.assignDeliveryUserId(deliveryUserId);
+            LocalDateTime assignedAt = unassigned.getAssignedAt();
+            assertThat(assignedAt).isNotNull();
+
+            unassigned.changeDeliveryUserId(UUID.randomUUID());
+            assertThat(unassigned.getAssignedAt()).isAfterOrEqualTo(assignedAt);
         }
 
         @Test
