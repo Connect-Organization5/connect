@@ -36,6 +36,7 @@ public enum ErrorCode {
     INVALID_QUANTITY_DELTA(HttpStatus.BAD_REQUEST, "조정 수량은 0이 될 수 없습니다."),
     STOCK_HUB_MISMATCH(HttpStatus.CONFLICT, "요청한 허브가 업체의 소속 허브와 일치하지 않습니다."),
     STOCK_INBOUND_CONFLICT(HttpStatus.CONFLICT, "같은 입고 ID로 처리된 기존 요청과 허브·상품·수량이 일치하지 않습니다."),
+    COMPANY_ID_REQUIRED(HttpStatus.BAD_REQUEST, "MASTER가 아니면 업체 ID(companyId)가 필요합니다."),
 
     // company 연동
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "업체를 찾을 수 없습니다."),
