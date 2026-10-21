@@ -40,16 +40,12 @@ public class OrderService {
 
     private static final String MASTER_ROLE = "MASTER";
     private static final String MODIFIABLE_DELIVERY_STATUS = "HUB_WAITING";
+    private static final String CANCELED_DELIVERY_STATUS = "CANCELED";
 
     public OrderResponse createOrder(UUID userId, String userAffiliationType, UUID userAffiliationId, CreateOrderRequest request) {
-        OrderRequester requester =
-                switch (userAffiliationType) {
-                    case "COMPANY" -> OrderRequester.from(companyClient.getSupplyCompany(userAffiliationId));
-                    case "HUB" -> OrderRequester.from(hubClient.getHub(userAffiliationId));
-                    default -> throw new BaseException(ErrorCode.AFFILIATION_NOT_FOUND);
-                };
+        OrderRequester requester = findRequester(userAffiliationType, userAffiliationId);
         validateProduct(request.getSupplierCompanyId(), request.getProductId());
-        CompanyInfo supplier = companyClient.getSupplyCompany(request.getSupplierCompanyId());
+        CompanyInfo supplier = findSupplier(request.getSupplierCompanyId());
 
         Order order = orderRepository.save(Order.builder()
                 .requesterCompanyId(requester.companyId())
@@ -60,18 +56,19 @@ public class OrderService {
                 .receiver(request.getReceiver())
                 .build());
 
-        boolean decreased;
+        StockResult stockResult;
         try {
-            decreased = hubClient.decreaseStock(
+            stockResult = hubClient.decreaseStock(
                     order.getId(), supplier.hubId(), request.getProductId(), request.getQuantity());
         } catch (Exception e) {
             log.error("재고 차감 실패 - orderId={}", order.getId(), e);
+            restoreStock(order, supplier.hubId(), "재고 차감 실패");
             fail(order);
             throw new BaseException(ErrorCode.STOCK_DECREASE_FAILED);
         }
-        if (!decreased) {
+        if (stockResult != StockResult.SUCCESS) {
             fail(order);
-            throw new BaseException(ErrorCode.OUT_OF_STOCK);
+            throw new BaseException(toStockErrorCode(stockResult, ErrorCode.OUT_OF_STOCK));
         }
 
         UUID deliveryId;
@@ -85,17 +82,24 @@ public class OrderService {
                     order.getReceiver()));
         } catch (Exception e) {
             log.error("배송 생성 실패 - orderId={}", order.getId(), e);
-            try {
-                hubClient.restoreStock(order.getId(), supplier.hubId(), request.getProductId());
-            } catch (Exception ex) {
-                log.error("배송 생성 실패 후 재고 보상 실패 - orderId={}", order.getId(), ex);
-            }
+            compensateDeliveryAndStock(order, supplier.hubId(), "배송 생성 실패");
             fail(order);
             throw new BaseException(ErrorCode.DELIVERY_CREATE_FAILED);
         }
 
-        order.complete(deliveryId);
-        orderRepository.save(order);
+        try {
+            order.complete(deliveryId);
+            orderRepository.save(order);
+        } catch (Exception e) {
+            log.error("주문 저장 실패 - orderId={}", order.getId(), e);
+            compensateDeliveryAndStock(order, supplier.hubId(), "주문 저장 실패");
+            try {
+                fail(order);
+            } catch (Exception ex) {
+                log.error("주문 저장 실패 후 실패 상태 저장 실패 - orderId={}", order.getId(), ex);
+            }
+            throw new BaseException(ErrorCode.ORDER_SAVE_FAILED);
+        }
 
         orderNotificationService.notifyOrderCreated(OrderCreatedNotification.of(order, userId, supplier.userId()));
 
@@ -131,7 +135,7 @@ public class OrderService {
 
         // 관리자가 아니면 상품 담당자만 가능
         if (!isMaster(role)){
-            CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
+            CompanyInfo supplier = findSupplier(order.getSupplierCompanyId());
             if(!userId.equals(supplier.userId())) {
                 throw new BaseException(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED);
             }
@@ -155,7 +159,7 @@ public class OrderService {
         if (!"COMPANY".equals(userAffiliationType)) {
             throw new BaseException(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED);
         }
-        CompanyInfo company = companyClient.getSupplyCompany(userAffiliationId);
+        CompanyInfo company = findAffiliationCompany(userAffiliationId);
         if (!userId.equals(company.userId())) {
             throw new BaseException(ErrorCode.RECEIVED_ORDER_ACCESS_DENIED);
         }
@@ -179,7 +183,7 @@ public class OrderService {
         }
         validateDeliveryReady(order, userId, role);
 
-        CompanyInfo supplier = companyClient.getSupplyCompany(order.getSupplierCompanyId());
+        CompanyInfo supplier = findSupplier(order.getSupplierCompanyId());
 
         // 1. 재고 조정
         adjustStock(order.getId(), order.getStockAdjustSeq(), supplier, order.getProductId(), order.getQuantity(), request.getQuantity());
@@ -214,7 +218,7 @@ public class OrderService {
 
         // 재고 부족 등으로 이미 취소된 주문은 재고와 배송 처리 없이 삭제만
         if (order.isModifiable()) {
-            validateDeliveryReady(order, userId, role);
+            validateDeliveryCancelable(order, userId, role);
             try{
                 deliveryClient.cancelDelivery(order.getId());
             } catch (Exception ex) {
@@ -241,6 +245,23 @@ public class OrderService {
         orderRepository.save(order);
     }
 
+    private void compensateDeliveryAndStock(Order order, UUID hubId, String reason) {
+        try {
+            deliveryClient.cancelDelivery(order.getId());
+        } catch (Exception e) {
+            log.error("{} 후 배송 취소 보상 실패 - orderId={}", reason, order.getId(), e);
+        }
+        restoreStock(order, hubId, reason);
+    }
+
+    private void restoreStock(Order order, UUID hubId, String reason) {
+        try {
+            hubClient.restoreStock(order.getId(), hubId, order.getProductId());
+        } catch (Exception e) {
+            log.error("{} 후 재고 보상 실패 - orderId={}", reason, order.getId(), e);
+        }
+    }
+
     private boolean isMaster(String role) {
         return MASTER_ROLE.equalsIgnoreCase(role);
     }
@@ -248,6 +269,36 @@ public class OrderService {
     private Order findActiveOrder(UUID orderId) {
         return orderRepository.findByIdAndDeletedAtIsNull(orderId)
                 .orElseThrow(() -> new BaseException(ErrorCode.ORDER_NOT_FOUND));
+    }
+
+    private OrderRequester findRequester(String affiliationType, UUID affiliationId) {
+        return switch (affiliationType) {
+            case "COMPANY" -> OrderRequester.from(findAffiliationCompany(affiliationId));
+            case "HUB" -> {
+                try {
+                    yield OrderRequester.from(hubClient.getHub(affiliationId));
+                } catch (FeignException.NotFound e) {
+                    throw new BaseException(ErrorCode.AFFILIATION_NOT_FOUND);
+                }
+            }
+            default -> throw new BaseException(ErrorCode.AFFILIATION_NOT_FOUND);
+        };
+    }
+
+    private CompanyInfo findAffiliationCompany(UUID companyId) {
+        try {
+            return companyClient.getSupplyCompany(companyId);
+        } catch (FeignException.NotFound e) {
+            throw new BaseException(ErrorCode.AFFILIATION_NOT_FOUND);
+        }
+    }
+
+    private CompanyInfo findSupplier(UUID supplierCompanyId) {
+        try {
+            return companyClient.getSupplyCompany(supplierCompanyId);
+        } catch (FeignException.NotFound e) {
+            throw new BaseException(ErrorCode.SUPPLIER_COMPANY_NOT_FOUND);
+        }
     }
 
     private void validateProduct(UUID supplierCompanyId, UUID productId) {
@@ -259,17 +310,26 @@ public class OrderService {
     }
 
     private void validateDeliveryReady(Order order, UUID userId, String role) {
-        DeliveryInfo delivery;
+        if (!MODIFIABLE_DELIVERY_STATUS.equals(fetchDelivery(order, userId, role).deliveryStatus())) {
+            throw new BaseException(ErrorCode.ORDER_DELIVERY_STARTED);
+        }
+    }
+
+    private void validateDeliveryCancelable(Order order, UUID userId, String role) {
+        String status = fetchDelivery(order, userId, role).deliveryStatus();
+        if (!MODIFIABLE_DELIVERY_STATUS.equals(status) && !CANCELED_DELIVERY_STATUS.equals(status)) {
+            throw new BaseException(ErrorCode.ORDER_DELIVERY_STARTED);
+        }
+    }
+
+    private DeliveryInfo fetchDelivery(Order order, UUID userId, String role) {
         try {
-            delivery = deliveryClient.getDelivery(order.getDeliveryId(), userId, role);
+            return deliveryClient.getDelivery(order.getDeliveryId(), userId, role);
         } catch (FeignException.NotFound e) {
             throw new BaseException(ErrorCode.DELIVERY_NOT_FOUND);
         } catch (Exception e) {
             log.error("배송 조회 실패 - orderId={}", order.getId(), e);
             throw new BaseException(ErrorCode.DELIVERY_FETCH_FAILED);
-        }
-        if (!MODIFIABLE_DELIVERY_STATUS.equals(delivery.deliveryStatus())) {
-            throw new BaseException(ErrorCode.ORDER_DELIVERY_STARTED);
         }
     }
 
@@ -282,8 +342,24 @@ public class OrderService {
         UUID adjustmentId = UUID.nameUUIDFromBytes(
                 (orderId + ":" + seq + ":" + quantity + "->" + updateQuantity).getBytes(StandardCharsets.UTF_8));
 
-        if (!hubClient.adjustStock(adjustmentId, orderId, supplier.hubId(), productId, diff)) {
-            throw new BaseException(ErrorCode.OUT_OF_STOCK_FOR_UPDATE);
+        StockResult result;
+        try {
+            result = hubClient.adjustStock(adjustmentId, orderId, supplier.hubId(), productId, diff);
+        } catch (Exception e) {
+            log.error("재고 조정 실패 - orderId={}", orderId, e);
+            throw new BaseException(ErrorCode.STOCK_ADJUST_FAILED);
         }
+        if (result != StockResult.SUCCESS) {
+            throw new BaseException(toStockErrorCode(result, ErrorCode.OUT_OF_STOCK_FOR_UPDATE));
+        }
+    }
+
+    // 재고 거절 사유를 응답 에러로 변환, 재고 부족은 생성·수정마다 메시지가 달라 호출부에서 받음
+    private ErrorCode toStockErrorCode(StockResult result, ErrorCode outOfStock) {
+        return switch (result) {
+            case DISCONTINUED -> ErrorCode.PRODUCT_DISCONTINUED;
+            case NOT_READY -> ErrorCode.PRODUCT_NOT_READY;
+            default -> outOfStock;
+        };
     }
 }
