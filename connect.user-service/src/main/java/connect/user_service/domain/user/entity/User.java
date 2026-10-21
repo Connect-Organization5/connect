@@ -14,7 +14,7 @@ import java.util.UUID;
 @Setter
 @NoArgsConstructor
 // 마지막 MASTER 확인용 잠금 조회가 이 인덱스로 해당 소속의 행만 잠그도록 함 (인덱스가 없으면 훑은 행을 모두 잠금)
-@Table(name = "users", indexes = @Index(name = "idx_users_affiliation_role",
+@Table(name = "p_users", indexes = @Index(name = "idx_users_affiliation_role",
         columnList = "affiliation_type, affiliation_id, role"))
 @SQLRestriction("deleted_at IS NULL") // 논리적으로 삭제된 회원은 모든 조회에서 제외
 public class User extends TimeStamp {
