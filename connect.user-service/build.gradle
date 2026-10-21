@@ -48,6 +48,8 @@ dependencies {
 	implementation 'io.github.openfeign:feign-micrometer'
 	// PostgreSQL
 	runtimeOnly 'org.postgresql:postgresql'
+	// Swagger UI (/swagger-ui/index.html), OpenAPI 문서 (/v3/api-docs)
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
 
 }
 

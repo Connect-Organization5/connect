@@ -43,6 +43,8 @@ public class AuthConfig {
                         .requestMatchers("/auth/login", "/auth/signup").permitAll()
                         // 서비스 간 내부 호출(/internal/**)은 JWT 없이 허용. gateway 라우트에 없어서 외부에서는 접근할 수 없음
                         .requestMatchers("/internal/**").permitAll()
+                        // Swagger UI, OpenAPI 문서는 JWT 없이 허용 (문서 조회만 가능, 실제 API 호출은 그대로 인증 필요)
+                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // 그 외의 모든 요청은 인증이 필요합니다.
                         .anyRequest().authenticated()
                 );
