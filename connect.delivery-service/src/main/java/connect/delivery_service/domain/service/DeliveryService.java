@@ -224,25 +224,37 @@ public class DeliveryService {
                         id -> loads.containsKey(id) ? loads.get(id).lastDeliveryCreatedAt() : null,
                         Comparator.nullsFirst(Comparator.naturalOrder()));
 
+        // 같은 구간(출발·도착 허브)에서 담당자별로 맡고 있는 출발 전 배송 수
+        Map<UUID, Long> bundleCounts = deliveryRepository.countWaitingDeliveriesOnRoute(
+                delivery.getDepartureHubId(), delivery.getArrivalHubId(), hubUserIds);
+
         // 같은 구간의 출발 전 배송을 맡은 담당자가 있으면 묶어서 배정, 없으면 부하 분산
-        UUID selected = findBundleDeliveryUserId(delivery, hubUserIds, byLoad)
-                .orElseGet(() -> hubUserIds.stream().min(byLoad).orElseThrow());
+        UUID selected = findBundleDeliveryUserId(bundleCounts, byLoad)
+                .orElseGet(() -> withinBundleLimit(hubUserIds, bundleCounts).stream().min(byLoad).orElseThrow());
 
         delivery.assignDeliveryUserId(selected);
         deliveryRoute.assignDeliveryUserId(selected);
     }
 
-    // 묶음 배정 대상: 같은 출발·도착 허브의 HUB_WAITING 배송을 맡고 있고, 그 구간 배송이 상한(bundleMaxSize) 미만인 담당자
+    // 묶음 배정 대상: 같은 구간의 HUB_WAITING 배송을 맡고 있고, 그 구간 배송이 상한(bundleMaxSize) 미만인 담당자
     // 후보가 여럿이면 이미 묶인 배송이 많은 담당자 → 같으면 부하 분산 기준
-    private Optional<UUID> findBundleDeliveryUserId(Delivery delivery, List<UUID> hubUserIds, Comparator<UUID> byLoad) {
-        Map<UUID, Long> bundleCounts = deliveryRepository.countWaitingDeliveriesOnRoute(
-                delivery.getDepartureHubId(), delivery.getArrivalHubId(), hubUserIds);
-
+    private Optional<UUID> findBundleDeliveryUserId(Map<UUID, Long> bundleCounts, Comparator<UUID> byLoad) {
         return bundleCounts.entrySet().stream()
                 .filter(e -> e.getValue() < bundleMaxSize)
                 .map(Map.Entry::getKey)
                 .min(Comparator.comparingLong((UUID id) -> bundleCounts.get(id)).reversed()
                         .thenComparing(byLoad));
+    }
+
+    // 부하 분산 후보: 그 구간에서 상한에 도달한 담당자는 제외 (전원이 상한이면 전원). bundleMaxSize 가 0 이면 묶음 배정을 끈 것이라 제외하지 않음
+    private List<UUID> withinBundleLimit(List<UUID> hubUserIds, Map<UUID, Long> bundleCounts) {
+        if (bundleMaxSize <= 0) {
+            return hubUserIds;
+        }
+        List<UUID> candidates = hubUserIds.stream()
+                .filter(id -> bundleCounts.getOrDefault(id, 0L) < bundleMaxSize)
+                .toList();
+        return candidates.isEmpty() ? hubUserIds : candidates;
     }
 
     private HubRouteResponse getHubRoute(UUID departureHubId, UUID arrivalHubId) {
