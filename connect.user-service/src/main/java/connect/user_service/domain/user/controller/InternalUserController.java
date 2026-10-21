@@ -1,5 +1,6 @@
 package connect.user_service.domain.user.controller;
 
+import connect.user_service.domain.user.controller.docs.InternalUserControllerDocs;
 import connect.user_service.domain.user.dto.response.UserResponseDto;
 import connect.user_service.domain.user.service.UserService;
 import connect.user_service.global.dto.ApiResponse;
@@ -17,7 +18,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/internal/users")
 @RequiredArgsConstructor
-public class InternalUserController {
+public class InternalUserController implements InternalUserControllerDocs {
 
     private final UserService userService;
 

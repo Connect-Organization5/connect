@@ -1,14 +1,12 @@
 package connect.order_service.domain.controller;
 
+import connect.order_service.domain.controller.docs.OrderControllerDocs;
 import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderResponse;
 import connect.order_service.domain.dto.UpdateOrderRequest;
 import connect.order_service.domain.service.OrderService;
 import connect.order_service.global.dto.ApiResponse;
 import connect.order_service.global.dto.PagedResponse;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,7 +17,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/orders")
 @RequiredArgsConstructor
-public class OrderController {
+public class OrderController implements OrderControllerDocs {
 
     private final OrderService orderService;
 
@@ -28,7 +26,7 @@ public class OrderController {
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Affiliation-Type") String userAffiliationType,
             @RequestHeader("X-User-Affiliation-Id") UUID userAffiliationId,
-            @Valid @RequestBody CreateOrderRequest request) {
+            @RequestBody CreateOrderRequest request) {   // @Valid 는 OrderControllerDocs 에 선언 (구현 메서드에 다시 선언하면 HV000151 오류)
 
         OrderResponse response = orderService.createOrder(userId, userAffiliationType, userAffiliationId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -50,12 +48,9 @@ public class OrderController {
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role,
 
-            @RequestParam(defaultValue = "0")
-            @Min(value = 0, message = "page는 0 이상이어야 합니다.") int page,
-
-            @RequestParam(defaultValue = "10")
-            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
-            @Max(value = 100, message = "size는 100 이하이어야 합니다.") int size) {
+            // page·size 범위 검증(@Min/@Max)은 OrderControllerDocs 에 선언 (구현 메서드에 다시 선언하면 Hibernate Validator HV000151 오류)
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
 
         PagedResponse<OrderResponse> response = orderService.searchPageOrders(userId, role, page, size);
         return ResponseEntity.ok(ApiResponse.ok("주문 목록 조회에 성공했습니다.", response));
@@ -77,12 +72,9 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role,
             @RequestHeader("X-User-Affiliation-Type") String userAffiliationType,
             @RequestHeader("X-User-Affiliation-Id") UUID userAffiliationId,
-            @RequestParam(defaultValue = "0")
-            @Min(value = 0, message = "page는 0 이상이어야 합니다.") int page,
-
-            @RequestParam(defaultValue = "10")
-            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
-            @Max(value = 100, message = "size는 100 이하이어야 합니다.") int size) {
+            // page·size 범위 검증(@Min/@Max)은 OrderControllerDocs 에 선언 (구현 메서드에 다시 선언하면 Hibernate Validator HV000151 오류)
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
 
         PagedResponse<OrderResponse> response = orderService.searchReceivedPageOrders(userId, role, userAffiliationType, userAffiliationId, page, size);
         return ResponseEntity.ok(ApiResponse.ok("주문 받은 목록 조회에 성공했습니다.", response));
@@ -93,7 +85,7 @@ public class OrderController {
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role,
             @PathVariable UUID orderId,
-            @Valid @RequestBody UpdateOrderRequest request) {
+            @RequestBody UpdateOrderRequest request) {   // @Valid 는 OrderControllerDocs 에 선언 (구현 메서드에 다시 선언하면 HV000151 오류)
 
         OrderResponse response = orderService.updateOrder(userId, role, orderId, request);
         return ResponseEntity.ok(ApiResponse.ok("주문이 수정되었습니다.", response));

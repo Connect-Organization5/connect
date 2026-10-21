@@ -1,6 +1,7 @@
 package connect.hub_service.hub.controller;
 
 import connect.hub_service.global.dto.ApiResponse;
+import connect.hub_service.hub.controller.docs.HubControllerDocs;
 import connect.hub_service.global.dto.PagedResponse;
 import connect.hub_service.hub.dto.HubResponse;
 import connect.hub_service.hub.service.HubService;
@@ -16,7 +17,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/hubs")
 @RequiredArgsConstructor
-public class HubController {
+public class HubController implements HubControllerDocs {
 
     private final HubService hubService;
 

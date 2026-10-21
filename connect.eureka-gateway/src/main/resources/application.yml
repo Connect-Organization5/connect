@@ -60,6 +60,27 @@ spring:
               filters:
                 - StripPrefix=2
 
+            - id: user-service-docs
+              uri: lb://user-service
+              predicates:
+                - Path=/docs/user/v3/api-docs
+              filters:
+                - StripPrefix=2
+
+            - id: hub-service-docs
+              uri: lb://hub-service
+              predicates:
+                - Path=/docs/hub/v3/api-docs
+              filters:
+                - StripPrefix=2
+
+            - id: order-service-docs
+              uri: lb://order-service
+              predicates:
+                - Path=/docs/order/v3/api-docs
+              filters:
+                - StripPrefix=2
+
 eureka:
   client:
     service-url:
@@ -74,13 +95,12 @@ springdoc:
         url: /docs/company/v3/api-docs
       - name: delivery-service
         url: /docs/delivery/v3/api-docs
-      # 문서가 준비되면 추가 (각 서비스에 springdoc 의존성과 /v3/api-docs 필요)
-      # - name: user-service
-      #   url: /docs/user/v3/api-docs
-      # - name: hub-service
-      #   url: /docs/hub/v3/api-docs
-      # - name: order-service
-      #   url: /docs/order/v3/api-docs
+      - name: user-service
+        url: /docs/user/v3/api-docs
+      - name: hub-service
+        url: /docs/hub/v3/api-docs
+      - name: order-service
+        url: /docs/order/v3/api-docs
     urls-primary-name: company-service
 
 management:
