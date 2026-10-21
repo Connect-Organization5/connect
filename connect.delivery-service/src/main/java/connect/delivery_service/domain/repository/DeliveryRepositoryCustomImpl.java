@@ -96,6 +96,31 @@ public class DeliveryRepositoryCustomImpl implements DeliveryRepositoryCustom {
                                 t.get(lastDeliveryCreatedAt))));
     }
 
+    // 같은 구간(출발·도착 허브)에서 허브 출발 전(HUB_WAITING)인 배송을 담당자별로 센다. 묶음 배정 후보 조회용
+    @Override
+    public Map<UUID, Long> countWaitingDeliveriesOnRoute(UUID departureHubId, UUID arrivalHubId, List<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        NumberExpression<Long> waitingCount = delivery.count();
+
+        return queryFactory
+                .select(delivery.deliveryUserId, waitingCount)
+                .from(delivery)
+                .where(
+                        delivery.departureHubId.eq(departureHubId),
+                        delivery.arrivalHubId.eq(arrivalHubId),
+                        delivery.deliveryStatus.eq(DeliveryStatus.HUB_WAITING),
+                        delivery.deliveryUserId.in(userIds))
+                .groupBy(delivery.deliveryUserId)
+                .fetch()
+                .stream()
+                .collect(Collectors.toMap(
+                        t -> t.get(delivery.deliveryUserId),
+                        t -> t.get(waitingCount)));
+    }
+
     private BooleanExpression statusEq(DeliveryStatus status) {
         return status != null ? delivery.deliveryStatus.eq(status) : null;
     }

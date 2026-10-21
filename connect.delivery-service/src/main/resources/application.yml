@@ -25,6 +25,11 @@ eureka:
 jwt:
   secret: ${JWT_SECRET}
 
+delivery:
+  assignment:
+    # 자동 배정 시 같은 구간(출발·도착 허브)의 출발 전 배송을 한 담당자에게 묶는 최대 건수. 넘으면 부하 분산으로 배정
+    bundle-max-size: ${DELIVERY_BUNDLE_MAX_SIZE:5}
+
 management:
   tracing:
     sampling:
