@@ -4,7 +4,9 @@ import connect.hub_service.global.dto.ApiResponse;
 import connect.hub_service.stock.controller.docs.StockControllerDocs;
 import connect.hub_service.global.dto.PagedResponse;
 import connect.hub_service.stock.dto.StockCreateRequest;
+import connect.hub_service.stock.dto.StockInboundHistoryResponse;
 import connect.hub_service.stock.dto.StockInboundRequest;
+import connect.hub_service.stock.dto.StockInboundResponse;
 import connect.hub_service.stock.dto.StockResponse;
 import connect.hub_service.stock.service.StockService;
 import jakarta.validation.Valid;
@@ -40,13 +42,23 @@ public class StockController implements StockControllerDocs {
                 .body(ApiResponse.ok("재고 등록 성공", stockService.register(userId, role, request)));
     }
 
-    // 재고 입고(수량 추가). 요청 본문의 hubId·productId로 기존 재고를 찾는다. 멱등하지 않으며 MASTER 또는 해당 업체의 관리자만 호출할 수 있다.
+    // 재고 입고(수량 추가). 요청 본문의 hubId·productId로 기존 재고를 찾는다. MASTER 또는 해당 업체의 관리자만 호출할 수 있다.
+    // inboundId로 멱등하다: 같은 inboundId 재요청은 수량을 다시 더하지 않고 최초 결과(alreadyProcessed=true)를 돌려준다.
     @PostMapping("/inbound")
-    public ApiResponse<StockResponse> inbound(
+    public ApiResponse<StockInboundResponse> inbound(
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role,
             @Valid @RequestBody StockInboundRequest request) {
         return ApiResponse.ok("재고 입고 성공", stockService.inbound(userId, role, request));
+    }
+
+    // 재고별 입고 이력(최신순). 재고 조회와 같이 로그인 사용자 누구나 조회할 수 있다.
+    @GetMapping("/{stockId}/inbounds")
+    public ApiResponse<PagedResponse<StockInboundHistoryResponse>> getInbounds(
+            @PathVariable UUID stockId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ApiResponse.ok("재고 입고 이력 조회 성공", stockService.getInbounds(stockId, page, size));
     }
 
     @GetMapping
