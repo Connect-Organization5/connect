@@ -112,7 +112,7 @@ flowchart LR
 
 ## 5. ERD
 
-https://dbdiagram.io/d/6acc859c27cfb7f1bcdd5c07
+https://dbdiagram.io/d/6ad849b2f8963ca19c6c266d
 
 ```mermaid
 erDiagram
