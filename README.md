@@ -109,6 +109,7 @@ flowchart LR
 
 <br>
 
+
 ## 5. ERD
 
 https://dbdiagram.io/d/6acc859c27cfb7f1bcdd5c07
@@ -116,7 +117,7 @@ https://dbdiagram.io/d/6acc859c27cfb7f1bcdd5c07
 ```mermaid
 erDiagram
     %% ===== User DB =====
-    users {
+    p_users {
         uuid id PK
         varchar username UK "NN"
         varchar password "NN, BCrypt"
@@ -181,6 +182,7 @@ erDiagram
         uuid order_id UK "NN, 논리 참조"
         uuid orderer_id "NN, 논리 참조"
         uuid delivery_user_id "논리 참조, 미배정이면 NULL"
+        timestamp assigned_at "담당자 배정·변경 시각, 미배정이면 NULL"
         uuid departure_hub_id "NN, 논리 참조"
         uuid arrival_hub_id "NN, 논리 참조"
         delivery_status delivery_status "NN"
@@ -243,7 +245,7 @@ erDiagram
     }
 
     %% ===== Order DB =====
-    p_order {
+    p_orders {
         uuid id PK
         uuid requester_company_id "NN, 논리 참조 (업체 또는 허브)"
         uuid supplier_company_id "NN, 논리 참조"
@@ -292,24 +294,24 @@ erDiagram
 
     %% ----- 논리 참조 (UUID만 저장, DB FK 없음, 점선) -----
     p_hubs ||..o{ p_companies : "hub_id 논리 참조"
-    users |o..o{ p_companies : "user_id 논리 참조"
-    p_companies ||..o{ users : "affiliation_id 논리 참조 (COMPANY)"
-    p_hubs ||..o{ users : "affiliation_id 논리 참조 (HUB)"
+    p_users |o..o{ p_companies : "user_id 논리 참조"
+    p_companies ||..o{ p_users : "affiliation_id 논리 참조 (COMPANY)"
+    p_hubs ||..o{ p_users : "affiliation_id 논리 참조 (HUB)"
     p_company_products ||..o{ p_stocks : "product_id 논리 참조"
-    p_companies ||..o{ p_order : "requester_company_id 논리 참조"
-    p_companies ||..o{ p_order : "supplier_company_id 논리 참조"
-    p_company_products ||..o{ p_order : "product_id 논리 참조"
-    p_order ||..o| p_deliveries : "order_id, delivery_id 논리 참조"
-    p_order ||..o{ p_stock_histories : "order_id 논리 참조"
+    p_companies ||..o{ p_orders : "requester_company_id 논리 참조"
+    p_companies ||..o{ p_orders : "supplier_company_id 논리 참조"
+    p_company_products ||..o{ p_orders : "product_id 논리 참조"
+    p_orders ||..o| p_deliveries : "order_id, delivery_id 논리 참조"
+    p_orders ||..o{ p_stock_histories : "order_id 논리 참조"
     p_deliveries ||..o| p_delivery_routes : "delivery_id 논리 참조"
     p_hubs ||..o{ p_deliveries : "departure_hub_id 논리 참조"
     p_hubs ||..o{ p_deliveries : "arrival_hub_id 논리 참조"
-    users ||..o{ p_deliveries : "orderer_id 논리 참조"
-    users |o..o{ p_deliveries : "delivery_user_id 논리 참조"
+    p_users ||..o{ p_deliveries : "orderer_id 논리 참조"
+    p_users |o..o{ p_deliveries : "delivery_user_id 논리 참조"
     p_hubs ||..o{ p_delivery_routes : "departure_hub_id 논리 참조"
     p_hubs ||..o{ p_delivery_routes : "arrival_hub_id 논리 참조"
-    users |o..o{ p_delivery_routes : "delivery_user_id 논리 참조"
-    users ||..o{ p_stock_inbounds : "inbound_by 논리 참조"
+    p_users |o..o{ p_delivery_routes : "delivery_user_id 논리 참조"
+    p_users ||..o{ p_stock_inbounds : "inbound_by 논리 참조"
 ```
 
 | 서비스 DB | 테이블 |
