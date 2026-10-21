@@ -343,6 +343,93 @@ class DeliveryServiceTest {
                 assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
                 assertThat(captureSavedRoute().getDeliveryUserId()).isEqualTo(driverB);
             }
+
+            @Nested
+            @DisplayName("같은 구간 묶음 배정")
+            class Bundle {
+
+                @BeforeEach
+                void setUp() {
+                    ReflectionTestUtils.setField(deliveryService, "bundleMaxSize", 5);
+                }
+
+                // 같은 출발·도착 허브의 HUB_WAITING 배송 수를 담당자별로 넣는다
+                private void givenBundleCounts(List<UUID> userIds, Map<UUID, Long> counts) {
+                    given(deliveryRepository.countWaitingDeliveriesOnRoute(
+                            request.getDepartureHubId(), request.getArrivalHubId(), userIds)).willReturn(counts);
+                }
+
+                @Test
+                @DisplayName("같은 구간의 출발 전 배송을 맡은 담당자에게 부하와 관계없이 묶어서 배정")
+                void bundleToSameRouteDriver() {
+                    List<UUID> userIds = List.of(driverA, driverB);
+                    givenHubDeliveryUsers(userIds,
+                            new DriverLoad(driverA, 4, now.minusMinutes(1)),
+                            new DriverLoad(driverB, 0, now.minusDays(1)));
+                    givenBundleCounts(userIds, Map.of(driverA, 2L));
+
+                    DeliveryResponse response = deliveryService.createDelivery(request);
+
+                    assertThat(response.getDeliveryUserId()).isEqualTo(driverA);
+                    assertThat(captureSavedRoute().getDeliveryUserId()).isEqualTo(driverA);
+                }
+
+                @Test
+                @DisplayName("묶인 배송이 상한에 도달하면 부하 분산으로 배정")
+                void bundleFullFallsBackToLoad() {
+                    List<UUID> userIds = List.of(driverA, driverB);
+                    givenHubDeliveryUsers(userIds,
+                            new DriverLoad(driverA, 5, now.minusMinutes(1)),
+                            new DriverLoad(driverB, 1, now.minusDays(1)));
+                    givenBundleCounts(userIds, Map.of(driverA, 5L));
+
+                    DeliveryResponse response = deliveryService.createDelivery(request);
+
+                    assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+                }
+
+                @Test
+                @DisplayName("후보가 여럿이면 이미 묶인 배송이 많은 담당자를 배정")
+                void preferLargerBundle() {
+                    List<UUID> userIds = List.of(driverA, driverB, driverC);
+                    givenHubDeliveryUsers(userIds,
+                            new DriverLoad(driverA, 1, now.minusHours(1)),
+                            new DriverLoad(driverB, 3, now.minusHours(1)));
+                    givenBundleCounts(userIds, Map.of(driverA, 1L, driverB, 3L));
+
+                    DeliveryResponse response = deliveryService.createDelivery(request);
+
+                    assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+                }
+
+                @Test
+                @DisplayName("묶인 배송 수가 같으면 부하 분산 기준으로 배정")
+                void sameBundleSizeTieBreakByLoad() {
+                    List<UUID> userIds = List.of(driverA, driverB);
+                    givenHubDeliveryUsers(userIds,
+                            new DriverLoad(driverA, 3, now.minusHours(1)),
+                            new DriverLoad(driverB, 2, now.minusHours(1)));
+                    givenBundleCounts(userIds, Map.of(driverA, 2L, driverB, 2L));
+
+                    DeliveryResponse response = deliveryService.createDelivery(request);
+
+                    assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+                }
+
+                @Test
+                @DisplayName("같은 구간 배송이 없으면 부하 분산으로 배정")
+                void noBundleFallsBackToLoad() {
+                    List<UUID> userIds = List.of(driverA, driverB);
+                    givenHubDeliveryUsers(userIds,
+                            new DriverLoad(driverA, 2, now.minusHours(1)),
+                            new DriverLoad(driverB, 1, now.minusHours(1)));
+                    givenBundleCounts(userIds, Map.of());
+
+                    DeliveryResponse response = deliveryService.createDelivery(request);
+
+                    assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+                }
+            }
         }
     }
 
