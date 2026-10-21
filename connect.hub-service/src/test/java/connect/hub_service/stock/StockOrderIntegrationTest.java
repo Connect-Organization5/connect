@@ -470,6 +470,81 @@ class StockOrderIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    // ---- 에러 응답 code (Order가 같은 상태 코드 안에서 원인을 구분하는 값) ----
+
+    @Test
+    void 성공_응답에는_code가_없다() throws Exception {
+        decrease(UUID.randomUUID(), createStock(10), 1)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
+    @Test
+    void 차감_실패는_원인별_code를_준다() throws Exception {
+        TestStock stock = createStock(5);
+
+        decrease(UUID.randomUUID(), stock, 6)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_STOCK"))
+                .andExpect(jsonPath("$.message").value("재고가 부족합니다."));
+
+        TestStock deleted = createStock(5);
+        jdbcTemplate.update("update p_stocks set deleted_at = now() where id = ?", deleted.id());
+        decrease(UUID.randomUUID(), deleted, 1)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STOCK_DELETED"));
+
+        UUID orderId = UUID.randomUUID();
+        decrease(orderId, stock, 1).andExpect(status().isOk());
+        decrease(orderId, stock, 2)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STOCK_REQUEST_CONFLICT"));
+
+        postJson("/internal/hubs/stocks/decrease", decreaseBody(UUID.randomUUID(), SEOUL, UUID.randomUUID(), 1))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("STOCK_NOT_FOUND"));
+    }
+
+    @Test
+    void 차감_이력이_없는_복원은_DECREASE_HISTORY_NOT_FOUND이고_재복원은_200이다() throws Exception {
+        TestStock stock = createStock(10);
+        UUID orderId = UUID.randomUUID();
+
+        // 차감되지 않은 주문의 복원: 되돌릴 재고가 없다
+        restore(orderId, stock)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DECREASE_HISTORY_NOT_FOUND"));
+
+        decrease(orderId, stock, 3).andExpect(status().isOk());
+        restore(orderId, stock).andExpect(status().isOk());
+        // 같은 주문을 다시 복원하면 에러가 아니라 이미 처리됨(200)으로 응답한다
+        restore(orderId, stock)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.alreadyProcessed").value(true))
+                .andExpect(jsonPath("$.code").doesNotExist());
+        // 복원된 주문을 다시 차감하면 STOCK_ALREADY_RESTORED
+        decrease(orderId, stock, 3)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STOCK_ALREADY_RESTORED"));
+    }
+
+    @Test
+    void 요청_검증_실패도_code를_준다() throws Exception {
+        TestStock stock = createStock(10);
+
+        decrease(UUID.randomUUID(), stock, 0)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        postJson("/internal/hubs/stocks/decrease", "{not-json")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        mockMvc.perform(post("/internal/hubs/stocks/delete").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productIds\":[\"" + stock.productId() + "\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_HEADER"));
+    }
+
     // ---- DB 제약 ----
 
     // DECREASE·RESTORE의 멱등 키는 주문 ID다.
