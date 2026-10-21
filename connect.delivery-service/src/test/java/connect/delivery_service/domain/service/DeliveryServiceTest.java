@@ -389,6 +389,34 @@ class DeliveryServiceTest {
                 }
 
                 @Test
+                @DisplayName("부하 분산에서도 그 구간 상한에 도달한 담당자는 진행 중 배송이 가장 적어도 제외")
+                void fullDriverExcludedFromLoadBalancing() {
+                    List<UUID> userIds = List.of(driverA, driverB);
+                    givenHubDeliveryUsers(userIds,
+                            new DriverLoad(driverA, 5, now.minusHours(1)),
+                            new DriverLoad(driverB, 7, now.minusHours(1)));
+                    givenBundleCounts(userIds, Map.of(driverA, 5L));
+
+                    DeliveryResponse response = deliveryService.createDelivery(request);
+
+                    assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+                }
+
+                @Test
+                @DisplayName("허브 담당자가 모두 그 구간 상한이면 부하 분산으로 전원 중에서 배정")
+                void allDriversFullFallsBackToAll() {
+                    List<UUID> userIds = List.of(driverA, driverB);
+                    givenHubDeliveryUsers(userIds,
+                            new DriverLoad(driverA, 6, now.minusHours(1)),
+                            new DriverLoad(driverB, 5, now.minusHours(1)));
+                    givenBundleCounts(userIds, Map.of(driverA, 5L, driverB, 5L));
+
+                    DeliveryResponse response = deliveryService.createDelivery(request);
+
+                    assertThat(response.getDeliveryUserId()).isEqualTo(driverB);
+                }
+
+                @Test
                 @DisplayName("후보가 여럿이면 이미 묶인 배송이 많은 담당자를 배정")
                 void preferLargerBundle() {
                     List<UUID> userIds = List.of(driverA, driverB, driverC);
