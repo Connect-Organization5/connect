@@ -30,7 +30,7 @@ service:
     secret-key: ${JWT_SECRET_KEY}
 
 server:
-  port: 808
+  port: 8081
 
 # 소속별 초기 MASTER 계정 (MasterAccountInitializer 가 시작 시 없으면 BCrypt 로 암호화해서 생성)
 # 비밀번호가 git 에 올라가지 않도록 여기 적지 말고 환경변수 또는 .env 로 주입
