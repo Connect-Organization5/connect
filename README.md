@@ -316,7 +316,7 @@ erDiagram
 
 | 서비스 DB | 테이블 |
 |---|---|
-| User (`connect_user`) | `users` |
+| User (`connect_user`) | `p_users` |
 | Company (`connect_company`) | `p_companies`, `p_company_products` |
 | Hub (`connect_hub`) | `p_hubs`, `p_hub_routes`, `p_stocks`, `p_stock_inbounds`, `p_stock_histories` |
 | Order (`connect_order`) | `p_order` |
@@ -413,7 +413,7 @@ erDiagram
 sequenceDiagram
     participant C as Client
     participant G as Gateway
-    participant U as User Service
+    participant U as Auth Service
     participant S as 각 서비스
 
     C->>G: POST /auth/login
