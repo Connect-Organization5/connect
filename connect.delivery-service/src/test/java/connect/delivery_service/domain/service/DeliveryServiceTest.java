@@ -272,7 +272,7 @@ class DeliveryServiceTest {
             }
 
             @Test
-            @DisplayName("진행 중인 배송 수가 같으면 마지막 배송이 더 오래된 담당자를 배정")
+            @DisplayName("진행 중인 배송 수가 같으면 마지막 배정이 더 오래된 담당자를 배정")
             void tieBreakByOldestLastDelivery() {
                 givenHubDeliveryUsers(List.of(driverA, driverB),
                         new DriverLoad(driverA, 2, now.minusMinutes(10)),

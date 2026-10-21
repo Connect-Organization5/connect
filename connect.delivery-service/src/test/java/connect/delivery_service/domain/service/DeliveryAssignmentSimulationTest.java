@@ -21,6 +21,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -122,9 +123,8 @@ class DeliveryAssignmentSimulationTest {
         given(deliveryRepository.findByOrderId(any())).willReturn(Optional.empty());
         given(deliveryRepository.save(any(Delivery.class))).willAnswer(inv -> {
             Delivery delivery = inv.getArgument(0);
-            // id·createdAt 은 DB 와 JPA Auditing 이 채우는 값이라 직접 넣는다
+            // id 는 DB 가 채우는 값이라 직접 넣는다
             ReflectionTestUtils.setField(delivery, "id", UUID.randomUUID());
-            ReflectionTestUtils.setField(delivery, "createdAt", clock.plusMinutes(store.size()));
             store.add(delivery);
             return delivery;
         });
@@ -159,6 +159,8 @@ class DeliveryAssignmentSimulationTest {
             for (Route route : orders) {
                 UUID assigned = deliveryService.createDelivery(request(route)).getDeliveryUserId();
                 assignedThisRound.merge(assigned, 1, Integer::sum);
+                // assignedAt 은 LocalDateTime.now() 라 같은 밀리초에 겹칠 수 있어, 결과가 실행마다 달라지지 않도록 가상 시계로 덮어쓴다
+                ReflectionTestUtils.setField(store.get(store.size() - 1), "assignedAt", clock.plusMinutes(store.size()));
             }
 
             // 라운드 종료: 출발 전 배송을 (담당자, 구간) 단위로 묶어 운행
@@ -199,7 +201,7 @@ class DeliveryAssignmentSimulationTest {
         return request;
     }
 
-    // DeliveryRepositoryCustomImpl.findDriverLoads 와 같은 규칙: 담당자별 진행 중 배송 수, 마지막 배송 생성 시각
+    // DeliveryRepositoryCustomImpl.findDriverLoads 와 같은 규칙: 담당자별 진행 중 배송 수, 마지막 배정 시각
     private static Map<UUID, DriverLoad> driverLoads(List<Delivery> store, List<UUID> userIds) {
         return store.stream()
                 .filter(d -> d.getDeliveryUserId() != null && userIds.contains(d.getDeliveryUserId()))
@@ -208,7 +210,7 @@ class DeliveryAssignmentSimulationTest {
                 .collect(Collectors.toMap(Map.Entry::getKey, e -> new DriverLoad(
                         e.getKey(),
                         e.getValue().stream().filter(d -> ACTIVE.contains(d.getDeliveryStatus())).count(),
-                        e.getValue().stream().map(d -> (LocalDateTime) ReflectionTestUtils.getField(d, "createdAt"))
+                        e.getValue().stream().map(Delivery::getAssignedAt).filter(Objects::nonNull)
                                 .max(LocalDateTime::compareTo).orElse(null))));
     }
 

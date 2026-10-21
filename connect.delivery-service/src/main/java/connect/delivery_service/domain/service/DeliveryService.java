@@ -217,11 +217,11 @@ public class DeliveryService {
 
         Map<UUID, DeliveryRepositoryCustomImpl.DriverLoad> loads = deliveryRepository.findDriverLoads(hubUserIds);
 
-        // 부하 분산 기준: 진행 중 배송이 적은 담당자 → 같으면 마지막 배송이 오래된(이력 없으면 최우선) 담당자
+        // 부하 분산 기준: 진행 중 배송이 적은 담당자 → 같으면 마지막 배정이 오래된(이력 없으면 최우선) 담당자
         Comparator<UUID> byLoad = Comparator
                 .comparingLong((UUID id) -> loads.containsKey(id) ? loads.get(id).activeCount() : 0L)
                 .thenComparing(
-                        id -> loads.containsKey(id) ? loads.get(id).lastDeliveryCreatedAt() : null,
+                        id -> loads.containsKey(id) ? loads.get(id).lastAssignedAt() : null,
                         Comparator.nullsFirst(Comparator.naturalOrder()));
 
         // 같은 구간(출발·도착 허브)에서 담당자별로 맡고 있는 출발 전 배송 수
