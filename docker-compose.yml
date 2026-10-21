@@ -81,7 +81,7 @@ services:
       ADMIN_MASTERS_0_AFFILIATIONID: ${MASTER_AFFILIATION_ID}
       ADMIN_MASTERS_0_SLACKID: ${MASTER_SLACK_ID}
     ports:
-      - "19090:19090"
+      - "8081:8081"
 
   hub-service:
     <<: *spring-service
