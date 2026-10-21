@@ -1,6 +1,7 @@
 package connect.company_service.company.controller;
 
 import connect.company_service.company.controller.docs.CompanyControllerDocs;
+import connect.company_service.company.dto.request.AssignManagerRequest;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -13,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -75,6 +77,18 @@ public class CompanyController implements CompanyControllerDocs {
 
         CompanyResponse response = companyService.updateCompany(companyId, userId, userRole, request);
         return ResponseEntity.ok(ApiResponse.ok("업체가 수정되었습니다.", response));
+    }
+
+    // 업체 관리자 지정 (MASTER만 가능). 대상은 이 업체 소속(COMPANY)으로 가입한 사용자여야 한다
+    @PatchMapping("/{companyId}/manager")
+    public ResponseEntity<ApiResponse<CompanyResponse>> assignManager(
+            @PathVariable UUID companyId,
+            @RequestHeader(USER_ID_HEADER) UUID userId,
+            @RequestHeader(USER_ROLE_HEADER) String userRole,
+            @Valid @RequestBody AssignManagerRequest request) {
+
+        CompanyResponse response = companyService.assignManager(companyId, userId, userRole, request);
+        return ResponseEntity.ok(ApiResponse.ok("업체 관리자가 지정되었습니다.", response));
     }
 
     // 업체 삭제

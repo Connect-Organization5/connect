@@ -45,13 +45,13 @@ public class Company extends BaseEntity {
         return new Company(userId, hubId, name, address);
     }
 
-    public void update(UUID hubId, String name, String address) {
-        this.hubId = hubId;
+    // 소속 허브는 생성 후 변경하지 않는다 (허브별 재고·주문 데이터 정합성 보호)
+    public void update(String name, String address) {
         this.name = name;
         this.address = address;
     }
 
-    // 관리자 미지정 업체에 처음 연결된 사용자를 관리자로 지정
+    // MASTER가 지정한 사용자를 관리자로 지정 (기존 관리자가 있으면 변경)
     public void assignManager(UUID userId) {
         this.userId = userId;
     }

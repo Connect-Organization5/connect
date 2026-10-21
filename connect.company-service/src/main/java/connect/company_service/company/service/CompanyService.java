@@ -3,6 +3,7 @@ package connect.company_service.company.service;
 import connect.company_service.client.hub.HubClient;
 import connect.company_service.client.hub.HubValidator;
 import connect.company_service.client.hub.dto.StockDeleteRequest;
+import connect.company_service.client.user.UserValidator;
 import connect.company_service.company.dto.request.AssignManagerRequest;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.InternalCreateCompanyRequest;
@@ -36,11 +37,12 @@ public class CompanyService {
     private final HubValidator hubValidator;
     private final ProductService productService;
     private final HubClient hubClient;
+    private final UserValidator userValidator;
 
     // 업체 생성
     @Transactional
     public CompanyResponse createCompany(String userRole, CreateCompanyRequest request) {
-        // 업체 생성은 MASTER만 가능. 관리자는 첫 가입자가 내부 API(assignManager)로 지정된다
+        // 업체 생성은 MASTER만 가능. 관리자는 직원 가입 후 MASTER가 assignManager로 지정한다
         if (!ROLE_MASTER.equals(userRole)) {
             throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
         }
@@ -84,30 +86,34 @@ public class CompanyService {
 
         validateCompanyAccess(company, userId, userRole);
 
+        // 소속 허브는 생성 후 변경할 수 없다. Hub 별 재고와 주문의 출발 허브가 어긋나지 않도록 다른 hubId 요청은 거부한다
+        if (!company.getHubId().equals(request.hubId())) {
+            throw new BaseException(ErrorCode.COMPANY_HUB_CHANGE_NOT_ALLOWED);
+        }
+
         boolean nameChanged = !company.getName().equals(request.name());
         if (nameChanged && companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
             throw new BaseException(ErrorCode.COMPANY_ALREADY_EXISTS);
         }
 
-        // 존재하지 않는 Hub면 HUB_NOT_FOUND로 중단되어 수정하지 않는다
-        hubValidator.validateHubExists(request.hubId());
-
-        company.update(request.hubId(), request.name(), request.address());
+        company.update(request.name(), request.address());
 
         return CompanyResponse.from(company);
     }
 
-    // 회원가입 시 기존 업체를 고른 경우 (user-service 내부 호출)
-    // 관리자가 없는 업체(MASTER가 생성)면 처음 가입한 직원을 관리자로 지정하고, 이미 있으면 변경하지 않는다
+    // 업체 관리자 지정 (MASTER만 가능). 이미 관리자가 있으면 요청한 사용자로 변경한다
     @Transactional
-    public CompanyResponse assignManager(UUID companyId, AssignManagerRequest request) {
-        // 행 잠금으로 조회해 동시에 가입해도 먼저 들어온 직원만 관리자가 된다
-        Company company = companyRepository.findWithLockByIdAndDeletedAtIsNull(companyId)
-                .orElseThrow(() -> new BaseException(ErrorCode.COMPANY_NOT_FOUND));
-
-        if (company.getUserId() == null) {
-            company.assignManager(request.userId());
+    public CompanyResponse assignManager(UUID companyId, UUID userId, String userRole, AssignManagerRequest request) {
+        if (!ROLE_MASTER.equals(userRole)) {
+            throw new BaseException(ErrorCode.COMPANY_ACCESS_DENIED);
         }
+
+        Company company = findActiveCompany(companyId);
+
+        // 대상이 없는 사용자면 USER_NOT_FOUND, 이 업체 소속(COMPANY + affiliationId)이 아니면 COMPANY_MANAGER_NOT_MEMBER
+        userValidator.validateCompanyMember(userId, userRole, request.userId(), companyId);
+
+        company.assignManager(request.userId());
         return CompanyResponse.from(company);
     }
 

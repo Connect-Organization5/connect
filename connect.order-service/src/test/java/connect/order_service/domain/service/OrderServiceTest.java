@@ -6,6 +6,7 @@ import connect.order_service.domain.client.clientInterface.DeliveryClient;
 import connect.order_service.domain.client.clientInterface.HubClient;
 import connect.order_service.domain.client.dto.response.CompanyInfo;
 import connect.order_service.domain.client.dto.response.DeliveryInfo;
+import connect.order_service.domain.client.dto.response.StockResult;
 import connect.order_service.domain.dto.CreateOrderRequest;
 import connect.order_service.domain.dto.OrderResponse;
 import connect.order_service.domain.dto.UpdateOrderRequest;
@@ -76,7 +77,7 @@ class OrderServiceTest {
     void createOrder_outOfStock() {
         UUID myId = UUID.randomUUID();
         givenOrdererAndProduct(myId);
-        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(false);
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(StockResult.OUT_OF_STOCK);
 
         assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
                 .hasMessage(ErrorCode.OUT_OF_STOCK.getMessage());               // 에러 메시지 확인
@@ -85,11 +86,38 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("판매 중단 상품이면 주문은 FAILED로 저장 PRODUCT_DISCONTINUED")
+    void createOrder_discontinued() {
+        UUID myId = UUID.randomUUID();
+        givenOrdererAndProduct(myId);
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(StockResult.DISCONTINUED);
+
+        assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
+                .hasMessage(ErrorCode.PRODUCT_DISCONTINUED.getMessage());       // 에러 메시지 확인
+        verify(hubClient, never()).restoreStock(any(), any(), any());           // 거절이 확정돼 재고 복구 안 함
+        verify(deliveryClient, never()).createDelivery(any());                  // 배송 생성 안 함
+        assertThat(lastSavedOrder().getStatus()).isEqualTo(OrderStatus.FAILED); // 주문은 생성되고 상태가 실패
+    }
+
+    @Test
+    @DisplayName("판매 준비 중인 상품이면 주문은 FAILED로 저장 PRODUCT_NOT_READY")
+    void createOrder_notReady() {
+        UUID myId = UUID.randomUUID();
+        givenOrdererAndProduct(myId);
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(StockResult.NOT_READY);
+
+        assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
+                .hasMessage(ErrorCode.PRODUCT_NOT_READY.getMessage());          // 에러 메시지 확인
+        verify(hubClient, never()).restoreStock(any(), any(), any());           // 거절이 확정돼 재고 복구 안 함
+        assertThat(lastSavedOrder().getStatus()).isEqualTo(OrderStatus.FAILED); // 주문은 생성되고 상태가 실패
+    }
+
+    @Test
     @DisplayName("배송 생성이 실패하면 재고를 복구하고 주문은 FAILED DELIVERY_CREATE_FAILED")
     void createOrder_deliveryCreateFailed() {
         UUID myId = UUID.randomUUID();
         givenOrdererAndProduct(myId);
-        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(true);
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(StockResult.SUCCESS);
         when(deliveryClient.createDelivery(any())).thenThrow(new RuntimeException());
 
         assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
@@ -103,7 +131,7 @@ class OrderServiceTest {
     void createOrder_notifyOrderCreated() {
         UUID myId = UUID.randomUUID();
         givenOrdererAndProduct(myId);
-        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(true);
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(StockResult.SUCCESS);
         when(deliveryClient.createDelivery(any())).thenReturn(deliveryId);
 
         orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3));
@@ -124,7 +152,7 @@ class OrderServiceTest {
     void createOrder_failed_noNotification() {
         UUID myId = UUID.randomUUID();
         givenOrdererAndProduct(myId);
-        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(false);
+        when(hubClient.decreaseStock(any(), any(), any(), anyInt())).thenReturn(StockResult.OUT_OF_STOCK);
 
         assertThatThrownBy(() -> orderService.createOrder(myId, "COMPANY", requesterCompanyId, createRequest(3)))
                 .hasMessage(ErrorCode.OUT_OF_STOCK.getMessage());
@@ -402,10 +430,27 @@ class OrderServiceTest {
         when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
-        when(hubClient.adjustStock(any(), any(), any(), any(), eq(2))).thenReturn(false);   // 재고 차감 실패
+        when(hubClient.adjustStock(any(), any(), any(), any(), eq(2))).thenReturn(StockResult.OUT_OF_STOCK);   // 재고 차감 실패
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
                 .hasMessage(ErrorCode.OUT_OF_STOCK_FOR_UPDATE.getMessage());    // 오류 메시지 확인
+        verify(deliveryClient, never()).changeReceiver(any(), any(), any(), any());  // 배송 수정 메소드 실행하지 않음
+        assertThat(order.getQuantity()).isEqualTo(3);   // 수량이 변하지 않음
+    }
+
+    @Test
+    @DisplayName("재고 조정 중 오류가 나면 수정 불가 STOCK_ADJUST_FAILED")
+    void updateOrder_stockAdjustFailed() {
+        UUID myId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order order = givenCreatedOrder(orderId, myId);
+        when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
+        when(companyClient.getSupplyCompany(supplierCompanyId))
+                .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
+        when(hubClient.adjustStock(any(), any(), any(), any(), eq(2))).thenThrow(new RuntimeException());   // 재고 조정 중 오류
+
+        assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))
+                .hasMessage(ErrorCode.STOCK_ADJUST_FAILED.getMessage());     // 오류 메시지 확인
         verify(deliveryClient, never()).changeReceiver(any(), any(), any(), any());  // 배송 수정 메소드 실행하지 않음
         assertThat(order.getQuantity()).isEqualTo(3);   // 수량이 변하지 않음
     }
@@ -419,7 +464,7 @@ class OrderServiceTest {
         when(deliveryClient.getDelivery(eq(deliveryId), any(), any())).thenReturn(new DeliveryInfo(deliveryId, "HUB_WAITING"));
         when(companyClient.getSupplyCompany(supplierCompanyId))
                 .thenReturn(new CompanyInfo(supplierCompanyId, UUID.randomUUID(), UUID.randomUUID(), "회사 이름", "주소"));
-        when(hubClient.adjustStock(any(), any(), any(), any(), eq(2))).thenReturn(true);    // 수량 차감 성공
+        when(hubClient.adjustStock(any(), any(), any(), any(), eq(2))).thenReturn(StockResult.SUCCESS);    // 수량 차감 성공
         doThrow(new RuntimeException()).when(deliveryClient).changeReceiver(any(), any(), any(), any());  // 배송 수정에 오류
 
         assertThatThrownBy(() -> orderService.updateOrder(myId, "USER", orderId, updateRequest(5)))

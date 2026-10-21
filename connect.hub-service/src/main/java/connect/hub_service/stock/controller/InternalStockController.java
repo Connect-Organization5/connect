@@ -1,6 +1,7 @@
 package connect.hub_service.stock.controller;
 
 import connect.hub_service.global.dto.ApiResponse;
+import connect.hub_service.stock.controller.docs.InternalStockControllerDocs;
 import connect.hub_service.stock.dto.StockAdjustRequest;
 import connect.hub_service.stock.dto.StockAdjustResponse;
 import connect.hub_service.stock.dto.StockDecreaseRequest;
@@ -28,7 +29,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/internal/hubs/stocks")
 @RequiredArgsConstructor
-public class InternalStockController {
+public class InternalStockController implements InternalStockControllerDocs {
 
     private final StockService stockService;
 
