@@ -83,7 +83,8 @@ public class StockService {
 
     /**
      * 기존 재고의 수량을 늘린다(입고). 재고 행을 잠근 뒤 더하므로 동시 입고의 증가분이 유실되지 않는다.
-     * 멱등하지 않다: 응답 유실 후 같은 요청을 다시 보내면 수량이 중복 증가한다. 입고 이력은 남기지 않는다.
+     * inboundId로 멱등하다: 같은 inboundId 재요청은 수량을 다시 더하지 않고 최초 결과(alreadyProcessed=true)를 돌려주며,
+     * 같은 inboundId에 다른 허브·상품·수량이면 409다. 수량 증가와 입고 기록(p_stock_inbounds)은 같은 트랜잭션으로 저장한다.
      */
     @Transactional
     public StockInboundResponse inbound(UUID userId, String role, StockInboundRequest request) {
