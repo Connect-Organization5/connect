@@ -81,7 +81,7 @@ public class UserService {
         return user;
     }
 
-    // 회원 단건 조회 (USER 는 본인만, MASTER 는 같은 소속 회원만)
+    // 회원 단건 조회 (USER 는 본인만, MASTER 는 모든 회원)
     @Transactional(readOnly = true)
     public UserResponseDto getUser(UUID userId, User requester) {
         // 1. USER 가 다른 회원을 조회하면 거부 (대상 회원 조회 전에 거부해서 회원 존재 여부를 노출하지 않음)
@@ -94,7 +94,7 @@ public class UserService {
                 .orElseThrow(() -> new BaseException(ErrorCode.USER_NOT_FOUND));
 
         // 3. MASTER 는 같은 소속 회원만 조회 가능 (본인은 항상 같은 소속)
-        validateSameAffiliation(requester, user);
+        // validateSameAffiliation(requester, user);
 
         return UserResponseDto.from(user);
     }
