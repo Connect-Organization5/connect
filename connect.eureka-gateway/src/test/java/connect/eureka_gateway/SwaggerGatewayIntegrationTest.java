@@ -64,6 +64,19 @@ class SwaggerGatewayIntegrationTest {
     }
 
     @Test
+    @DisplayName("모든 서비스의 문서가 드롭다운에 있고, 각 문서 라우트가 해당 서비스로 연결됨")
+    void swaggerConfig_listsAllServices() throws Exception {
+        String body = get("/v3/api-docs/swagger-config").body();
+        List<RouteDefinition> routes = routeDefinitionLocator.getRouteDefinitions().collectList().block();
+
+        for (String service : new String[]{"company", "delivery", "user", "hub", "order"}) {
+            assertThat(body).contains("\"url\":\"/docs/" + service + "/v3/api-docs\"");
+            RouteDefinition docs = routes.stream().filter(r -> r.getId().equals(service + "-service-docs")).findFirst().orElseThrow();
+            assertThat(docs.getUri().toString()).isEqualTo("lb://" + service + "-service");
+        }
+    }
+
+    @Test
     @DisplayName("company 문서 라우트가 StripPrefix=2 로 lb://company-service 에 연결되고 기존 API 라우트도 유지")
     void routes_includeCompanyDocsAndKeepExistingRoutes() {
         List<RouteDefinition> routes = routeDefinitionLocator.getRouteDefinitions().collectList().block();

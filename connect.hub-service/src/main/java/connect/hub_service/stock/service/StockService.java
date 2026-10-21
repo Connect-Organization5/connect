@@ -15,14 +15,18 @@ import connect.hub_service.stock.dto.StockDecreaseResponse;
 import connect.hub_service.stock.dto.StockDeleteRequest;
 import connect.hub_service.stock.dto.StockDeleteResponse;
 import connect.hub_service.stock.dto.StockHistoryResponse;
+import connect.hub_service.stock.dto.StockInboundHistoryResponse;
 import connect.hub_service.stock.dto.StockInboundRequest;
+import connect.hub_service.stock.dto.StockInboundResponse;
 import connect.hub_service.stock.dto.StockResponse;
 import connect.hub_service.stock.dto.StockRestoreRequest;
 import connect.hub_service.stock.dto.StockRestoreResponse;
 import connect.hub_service.stock.entity.Stock;
 import connect.hub_service.stock.entity.StockHistory;
 import connect.hub_service.stock.entity.StockHistoryType;
+import connect.hub_service.stock.entity.StockInbound;
 import connect.hub_service.stock.repository.StockHistoryRepository;
+import connect.hub_service.stock.repository.StockInboundRepository;
 import connect.hub_service.stock.repository.StockRepository;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -44,13 +48,18 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class StockService {
 
+    // Gateway가 JWT 검증 후 전달한 X-User-Role 값
+    private static final String MASTER = "MASTER";
+
     private static final Sort DEFAULT_SORT = Sort.by("createdAt").and(Sort.by("id"));
+    private static final Sort INBOUND_SORT = Sort.by("createdAt").descending().and(Sort.by("id").descending());
 
     private final StockRepository stockRepository;
     private final StockHistoryRepository stockHistoryRepository;
     private final HubRepository hubRepository;
     private final EntityManager entityManager;
     private final CompanyValidator companyValidator;
+    private final StockInboundRepository stockInboundRepository;
 
     // 재고 등록은 MASTER 또는 해당 업체의 관리자만 할 수 있다(권한 판단은 CompanyValidator).
     @Transactional
@@ -77,10 +86,11 @@ public class StockService {
 
     /**
      * 기존 재고의 수량을 늘린다(입고). 재고 행을 잠근 뒤 더하므로 동시 입고의 증가분이 유실되지 않는다.
-     * 멱등하지 않다: 응답 유실 후 같은 요청을 다시 보내면 수량이 중복 증가한다. 입고 이력은 남기지 않는다.
+     * inboundId로 멱등하다: 같은 inboundId 재요청은 수량을 다시 더하지 않고 최초 결과(alreadyProcessed=true)를 돌려주며,
+     * 같은 inboundId에 다른 허브·상품·수량이면 409다. 수량 증가와 입고 기록(p_stock_inbounds)은 같은 트랜잭션으로 저장한다.
      */
     @Transactional
-    public StockResponse inbound(UUID userId, String role, StockInboundRequest request) {
+    public StockInboundResponse inbound(UUID userId, String role, StockInboundRequest request) {
         if (!hubRepository.existsById(request.hubId())) {
             throw new BaseException(ErrorCode.HUB_NOT_FOUND);
         }
@@ -88,9 +98,20 @@ public class StockService {
         // 등록과 같은 기준(MASTER 또는 업체 관리자, 소속 허브)으로 확인한다. Company 호출은 재고 행을 잠그기 전에 한다.
         companyValidator.validateStockTarget(request.companyId(), request.hubId(), request.productId(), userId, role);
 
+        // 같은 inboundId로 이미 처리된 입고면 수량을 다시 더하지 않는다.
+        StockInboundResponse processed = findProcessedInbound(request);
+        if (processed != null) {
+            return processed;
+        }
+
         // 삭제된 재고도 조회해 없음(404)과 삭제됨(409)을 구분한다.
         Stock stock = stockRepository.findByHubIdAndProductIdForUpdate(request.hubId(), request.productId())
                 .orElseThrow(() -> new BaseException(ErrorCode.STOCK_NOT_FOUND));
+        // 재고 행을 잠근 뒤 다시 확인한다. 잠금 전에 같은 inboundId의 다른 요청이 커밋됐을 수 있다.
+        processed = findProcessedInbound(request);
+        if (processed != null) {
+            return processed;
+        }
         if (stock.getDeletedAt() != null) {
             throw new BaseException(ErrorCode.STOCK_DELETED);
         }
@@ -100,7 +121,57 @@ public class StockService {
         } catch (ArithmeticException e) {
             throw new BaseException(ErrorCode.STOCK_QUANTITY_OVERFLOW);
         }
-        return StockResponse.from(stock);
+        try {
+            // 수량 증가와 입고 기록은 같은 트랜잭션으로 커밋된다.
+            stockInboundRepository.saveAndFlush(StockInbound.of(request.inboundId(), stock, request.quantity(), userId));
+        } catch (DataIntegrityViolationException e) {
+            // 다른 재고에 같은 inboundId가 동시에 들어온 경우 UNIQUE(inbound_id)가 막는다.
+            throw new BaseException(ErrorCode.STOCK_INBOUND_CONFLICT);
+        }
+        return new StockInboundResponse(request.inboundId(), stock.getId(), request.hubId(), request.productId(),
+                request.quantity(), stock.getQuantity(), false);
+    }
+
+    // 같은 inboundId의 입고가 이미 있으면 같은 요청(같은 허브·상품·수량)인지 확인해 최초 결과를 돌려준다. 다르면 409.
+    private StockInboundResponse findProcessedInbound(StockInboundRequest request) {
+        StockInbound inbound = stockInboundRepository.findByInboundId(request.inboundId()).orElse(null);
+        if (inbound == null) {
+            return null;
+        }
+        Stock stock = inbound.getStock();
+        boolean same = stock.getHub().getId().equals(request.hubId())
+                && stock.getProductId().equals(request.productId())
+                && inbound.getQuantity().equals(request.quantity());
+        if (!same) {
+            throw new BaseException(ErrorCode.STOCK_INBOUND_CONFLICT);
+        }
+        return new StockInboundResponse(inbound.getInboundId(), stock.getId(), request.hubId(), request.productId(),
+                inbound.getQuantity(), stock.getQuantity(), true);
+    }
+
+    /**
+     * 재고별 입고 이력(최신순). 등록·입고와 같이 MASTER 또는 해당 업체의 관리자만 조회할 수 있다.
+     * MASTER는 Company를 호출하지 않으며 논리 삭제된 재고의 이력도 조회한다.
+     * 업체 관리자는 companyId가 필요하고, 재고의 허브·상품으로 등록·입고와 같은 확인(CompanyValidator)을 거친다.
+     * 삭제된 재고는 Company에서도 상품이 삭제된 상태라 업체 관리자는 조회할 수 없다(409).
+     */
+    public PagedResponse<StockInboundHistoryResponse> getInbounds(UUID userId, String role, UUID stockId, UUID companyId,
+                                                                  int page, int size) {
+        PageRequest pageRequest = PageRequests.of(page, size, INBOUND_SORT);
+        boolean master = MASTER.equals(role);
+        if (!master && companyId == null) {
+            throw new BaseException(ErrorCode.COMPANY_ID_REQUIRED);
+        }
+        Stock stock = stockRepository.findById(stockId)
+                .orElseThrow(() -> new BaseException(ErrorCode.STOCK_NOT_FOUND));
+        if (!master) {
+            if (stock.getDeletedAt() != null) {
+                throw new BaseException(ErrorCode.STOCK_DELETED);
+            }
+            companyValidator.validateStockTarget(companyId, stock.getHub().getId(), stock.getProductId(), userId, role);
+        }
+        return PagedResponse.from(stockInboundRepository.findByStockId(stockId, pageRequest)
+                .map(StockInboundHistoryResponse::from));
     }
 
     /**

@@ -1,0 +1,143 @@
+# 전체 애플리케이션을 Docker 컨테이너로 실행
+#   1) 루트의 .env.example 을 .env 로 복사하고 값을 채운다 (.env 는 git 에 올리지 않음)
+#   2) docker compose up -d --build
+#   3) Gateway: http://localhost:8080 / Eureka: http://localhost:8761 / Zipkin: http://localhost:9411
+#
+# 각 서비스의 application.yml 은 바꾸지 않고, 컨테이너 안에서 달라지는 주소(DB, Eureka, Zipkin)만 환경변수로 덮어쓴다
+# (환경변수와 SPRING_APPLICATION_JSON 은 application.yml 보다 우선순위가 높음)
+
+x-spring-service: &spring-service
+  restart: on-failure
+  depends_on:
+    postgres:
+      condition: service_healthy
+    eureka-server:
+      condition: service_started
+
+# 모든 클라이언트 서비스 공통: Eureka 주소와 IP 등록 방식, Zipkin 주소
+# eureka.client.service-url 은 Map 이라 환경변수 이름으로는 defaultZone 대소문자가 유지되지 않을 수 있어 JSON 으로 넘김
+x-eureka-env: &eureka-env
+  SPRING_APPLICATION_JSON: '{"eureka":{"client":{"service-url":{"defaultZone":"http://eureka-server:8761/eureka/"}},"instance":{"prefer-ip-address":true}}}'
+  EUREKA_URL: http://eureka-server:8761/eureka/
+  MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+  ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${HOST_PG_PORT:-15432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  zipkin:
+    image: openzipkin/zipkin:3
+    ports:
+      - "9411:9411"
+
+  eureka-server:
+    build:
+      context: ./connect.eureka-server
+      dockerfile: ../docker/Dockerfile
+    ports:
+      - "8761:8761"
+
+  eureka-gateway:
+    <<: *spring-service
+    build:
+      context: ./connect.eureka-gateway
+      dockerfile: ../docker/Dockerfile
+    environment:
+      <<: *eureka-env
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+    ports:
+      - "8080:8080"
+
+  user-service:
+    <<: *spring-service
+    build:
+      context: ./connect.user-service
+      dockerfile: ../docker/Dockerfile
+    environment:
+      <<: *eureka-env
+      DB_URL: jdbc:postgresql://postgres:5432/connect_user
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      # 초기 MASTER 계정 (admin.masters[0].*)
+      ADMIN_MASTERS_0_USERNAME: ${MASTER_USERNAME}
+      ADMIN_MASTERS_0_PASSWORD: ${MASTER_PASSWORD}
+      ADMIN_MASTERS_0_EMAIL: ${MASTER_EMAIL}
+      ADMIN_MASTERS_0_AFFILIATIONTYPE: ${MASTER_AFFILIATION_TYPE:-HUB}
+      ADMIN_MASTERS_0_AFFILIATIONID: ${MASTER_AFFILIATION_ID}
+      ADMIN_MASTERS_0_SLACKID: ${MASTER_SLACK_ID}
+    ports:
+      - "19090:19090"
+
+  hub-service:
+    <<: *spring-service
+    build:
+      context: ./connect.hub-service
+      dockerfile: ../docker/Dockerfile
+    environment:
+      <<: *eureka-env
+      HUB_DB_URL: jdbc:postgresql://postgres:5432/connect_hub
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8083:8083"
+
+  company-service:
+    <<: *spring-service
+    build:
+      context: ./connect.company-service
+      dockerfile: ../docker/Dockerfile
+    environment:
+      <<: *eureka-env
+      COMPANY_DB_URL: jdbc:postgresql://postgres:5432/connect_company
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8082:8082"
+
+  order-service:
+    <<: *spring-service
+    build:
+      context: ./connect.order-service
+      dockerfile: ../docker/Dockerfile
+    environment:
+      <<: *eureka-env
+      # order-service 는 DB 주소가 application.yml 에 고정되어 있어 spring.datasource.url 을 직접 덮어씀
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/connect_order
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    ports:
+      - "8084:8084"
+
+  delivery-service:
+    <<: *spring-service
+    build:
+      context: ./connect.delivery-service
+      dockerfile: ../docker/Dockerfile
+    environment:
+      <<: *eureka-env
+      DELIVERY_DB_URL: jdbc:postgresql://postgres:5432/connect_delivery
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # delivery-service 는 JWT_SECRET 이라는 이름을 씀 (gateway·user-service 와 같은 값)
+      JWT_SECRET: ${JWT_SECRET_KEY}
+    ports:
+      - "8085:8085"
+
+volumes:
+  postgres-data:

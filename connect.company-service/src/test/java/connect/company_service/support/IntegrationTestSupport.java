@@ -2,6 +2,7 @@ package connect.company_service.support;
 
 import connect.company_service.client.hub.HubClient;
 import connect.company_service.client.hub.HubValidator;
+import connect.company_service.client.user.UserValidator;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -29,4 +30,8 @@ public abstract class IntegrationTestSupport {
 
     @MockitoBean
     protected HubClient hubClient;
+
+    // 테스트 환경에는 User Service도 없으므로 Mock 사용 (Mock 기본 동작: 관리자 지정 대상 검증은 통과)
+    @MockitoBean
+    protected UserValidator userValidator;
 }

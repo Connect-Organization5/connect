@@ -1,5 +1,6 @@
 package connect.company_service.company.controller.docs;
 
+import connect.company_service.company.dto.request.AssignManagerRequest;
 import connect.company_service.company.dto.request.CreateCompanyRequest;
 import connect.company_service.company.dto.request.UpdateCompanyRequest;
 import connect.company_service.company.dto.response.CompanyResponse;
@@ -27,14 +28,16 @@ public interface CompanyControllerDocs {
             description = """
                     업체를 생성합니다. 업체명 중복과 Hub 존재 여부(Hub Service 호출)를 확인한 뒤 저장합니다.
 
-                    **권한**: 로그인한 사용자 누구나
-                    - `USER` 가 생성하면 요청자가 업체 관리자(`userId`)가 됩니다.
-                    - `MASTER` 가 생성하면 관리자가 지정되지 않습니다(`userId = null`). 이후 회원가입한 직원이 관리자가 됩니다.
+                    **권한**: `MASTER` 만 가능
+                    - 생성 시 관리자는 지정되지 않습니다(`userId = null`).
+                    - 직원이 이 업체 소속으로 가입한 뒤 `PATCH /companies/{companyId}/manager` 로 MASTER 가 관리자를 지정합니다.
                     """,
             security = @SecurityRequirement(name = "gatewayBearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "생성 성공"),
             @ApiResponse(responseCode = "400", description = "필수값 누락·형식 오류(VALIDATION_FAILED), 필수 헤더 누락(MISSING_HEADER)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "MASTER 가 아님 (COMPANY_ACCESS_DENIED)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "존재하지 않는 Hub (HUB_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -47,7 +50,7 @@ public interface CompanyControllerDocs {
             @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true,
                     description = "요청 사용자 ID (Gateway 가 JWT 의 userId 로 설정)") UUID userId,
             @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true,
-                    description = "요청 사용자 권한 (MASTER 또는 USER)", example = "USER") String userRole,
+                    description = "요청 사용자 권한 (MASTER 또는 USER)", example = "MASTER") String userRole,
             CreateCompanyRequest request);
 
     @Operation(
@@ -88,7 +91,8 @@ public interface CompanyControllerDocs {
     @Operation(
             summary = "업체 수정",
             description = """
-                    업체의 Hub, 업체명, 주소를 수정합니다(PUT 전체 수정). 변경할 Hub 의 존재 여부를 Hub Service 로 확인합니다.
+                    업체명, 주소를 수정합니다(PUT 전체 수정).
+                    - 소속 Hub 는 생성 후 변경할 수 없습니다. 요청 본문의 `hubId` 는 현재 소속 Hub 와 같아야 하며, 다르면 409(`COMPANY_HUB_CHANGE_NOT_ALLOWED`)를 반환하고 업체 정보는 변경되지 않습니다.
 
                     **권한**: `MASTER` 또는 해당 업체 관리자(`Company.userId == X-User-Id`)
                     - 관리자가 지정되지 않은 업체는 `MASTER` 만 수정할 수 있습니다.
@@ -100,11 +104,9 @@ public interface CompanyControllerDocs {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "MASTER 도 업체 관리자도 아님 (COMPANY_ACCESS_DENIED)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "없거나 삭제된 업체(COMPANY_NOT_FOUND), 존재하지 않는 Hub(HUB_NOT_FOUND)",
+            @ApiResponse(responseCode = "404", description = "없거나 삭제된 업체 (COMPANY_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "다른 업체와 업체명 중복 (COMPANY_ALREADY_EXISTS)",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "500", description = "Hub Service 장애 등 서버 오류 (INTERNAL_SERVER_ERROR)",
+            @ApiResponse(responseCode = "409", description = "소속 Hub 변경 요청(COMPANY_HUB_CHANGE_NOT_ALLOWED), 다른 업체와 업체명 중복(COMPANY_ALREADY_EXISTS)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     ResponseEntity<connect.company_service.global.dto.ApiResponse<CompanyResponse>> updateCompany(
@@ -114,6 +116,37 @@ public interface CompanyControllerDocs {
             @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true,
                     description = "요청 사용자 권한 (MASTER 또는 USER)", example = "USER") String userRole,
             UpdateCompanyRequest request);
+
+    @Operation(
+            summary = "업체 관리자 지정",
+            description = """
+                    업체 관리자(`Company.userId`)를 지정합니다. 이미 관리자가 있으면 요청한 사용자로 변경합니다.
+                    User Service(`GET /internal/users/{userId}`)로 대상 사용자가 이 업체 소속
+                    (`affiliationType = COMPANY`, `affiliationId = companyId`)인지 확인한 뒤 저장합니다.
+                    지정된 관리자는 업체·상품을 수정·삭제할 수 있고, 주문 생성 시 공급 업체 담당자로 Slack 알림을 받습니다.
+
+                    **권한**: `MASTER` 만 가능
+                    """,
+            security = @SecurityRequirement(name = "gatewayBearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "지정 성공 (data.userId 가 지정된 관리자)"),
+            @ApiResponse(responseCode = "400", description = "필수값 누락(VALIDATION_FAILED), 필수 헤더 누락(MISSING_HEADER), "
+                    + "이 업체 소속 사용자가 아님(COMPANY_MANAGER_NOT_MEMBER)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "MASTER 가 아님 (COMPANY_ACCESS_DENIED)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "없거나 삭제된 업체(COMPANY_NOT_FOUND), 존재하지 않는 사용자(USER_NOT_FOUND)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "500", description = "User Service 장애 등 서버 오류 (INTERNAL_SERVER_ERROR)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    ResponseEntity<connect.company_service.global.dto.ApiResponse<CompanyResponse>> assignManager(
+            @Parameter(description = "업체 ID") UUID companyId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Id", required = true,
+                    description = "요청 사용자 ID (Gateway 가 JWT 의 userId 로 설정)") UUID userId,
+            @Parameter(in = ParameterIn.HEADER, name = "X-User-Role", required = true,
+                    description = "요청 사용자 권한 (MASTER 만 허용)", example = "MASTER") String userRole,
+            AssignManagerRequest request);
 
     @Operation(
             summary = "업체 삭제",

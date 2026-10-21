@@ -3,6 +3,8 @@ package connect.company_service.company;
 import com.jayway.jsonpath.JsonPath;
 import connect.company_service.company.entity.Company;
 import connect.company_service.company.repository.CompanyRepository;
+import connect.company_service.global.exception.BaseException;
+import connect.company_service.global.exception.ErrorCode;
 import connect.company_service.support.IntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +20,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -67,14 +70,20 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
         return UUID.fromString(JsonPath.read(response, "$.data.id"));
     }
 
-    // MASTER가 생성한 뒤 USER(ownerId)가 가입하며 관리자로 지정된 업체
+    private ResultActions requestAssign(UUID companyId, UUID requesterId, String role, UUID managerId) throws Exception {
+        return mockMvc.perform(patch("/companies/{companyId}/manager", companyId)
+                .header("X-User-Id", requesterId)
+                .header("X-User-Role", role)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"userId": "%s"}
+                        """.formatted(managerId)));
+    }
+
+    // MASTER가 생성한 뒤 USER(ownerId)를 관리자로 지정한 업체
     private UUID createOwnedCompany(String name, String address) throws Exception {
         UUID companyId = createCompany(name, address);
-        mockMvc.perform(patch("/internal/companies/{companyId}/manager", companyId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"userId": "%s"}
-                                """.formatted(ownerId)))
+        requestAssign(companyId, masterId, ROLE_MASTER, ownerId)
                 .andExpect(status().isOk());
         return companyId;
     }
@@ -231,23 +240,93 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
     class Update {
 
         @Test
-        @DisplayName("업체를 생성한 사용자가 수정하면 DB에 반영된다")
+        @DisplayName("업체 관리자가 소속 허브를 유지한 채 업체명을 수정하면 200이고 DB에 반영된다")
         void updateByOwner() throws Exception {
             UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
-            UUID newHubId = UUID.randomUUID();
 
             mockMvc.perform(put("/companies/{companyId}", companyId)
                             .header("X-User-Id", ownerId)
                             .header("X-User-Role", ROLE_USER)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(body(newHubId, "스파르타 택배", "부산시 해운대구")))
+                            .content(body(hubId, "스파르타 택배", "서울시 강남구")))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.name").value("스파르타 택배"));
+                    .andExpect(jsonPath("$.data.name").value("스파르타 택배"))
+                    .andExpect(jsonPath("$.data.hubId").value(hubId.toString()));
 
             Company updated = findCompany(companyId);
-            assertThat(updated.getHubId()).isEqualTo(newHubId);
+            assertThat(updated.getHubId()).isEqualTo(hubId);
             assertThat(updated.getName()).isEqualTo("스파르타 택배");
+            assertThat(updated.getAddress()).isEqualTo("서울시 강남구");
+        }
+
+        @Test
+        @DisplayName("MASTER가 소속 허브를 유지한 채 주소를 수정하면 200이고 DB에 반영된다")
+        void updateAddressByMaster() throws Exception {
+            UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", masterId)
+                            .header("X-User-Role", ROLE_MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(hubId, "스파르타 물류", "부산시 해운대구")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.address").value("부산시 해운대구"));
+
+            Company updated = findCompany(companyId);
+            assertThat(updated.getHubId()).isEqualTo(hubId);
             assertThat(updated.getAddress()).isEqualTo("부산시 해운대구");
+        }
+
+        @Test
+        @DisplayName("다른 허브로 변경을 요청하면 409 COMPANY_HUB_CHANGE_NOT_ALLOWED를 반환하고 DB는 그대로다")
+        void updateWithDifferentHub() throws Exception {
+            UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", ownerId)
+                            .header("X-User-Role", ROLE_USER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(UUID.randomUUID(), "스파르타 택배", "부산시 해운대구")))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COMPANY_HUB_CHANGE_NOT_ALLOWED"))
+                    .andExpect(jsonPath("$.message").value("업체의 소속 허브는 변경할 수 없습니다."));
+
+            Company unchanged = findCompany(companyId);
+            assertThat(unchanged.getHubId()).isEqualTo(hubId);
+            assertThat(unchanged.getName()).isEqualTo("스파르타 물류");
+            assertThat(unchanged.getAddress()).isEqualTo("서울시 강남구");
+        }
+
+        @Test
+        @DisplayName("MASTER도 다른 허브로는 변경할 수 없어 409를 반환한다")
+        void updateWithDifferentHubByMaster() throws Exception {
+            UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", masterId)
+                            .header("X-User-Role", ROLE_MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(UUID.randomUUID(), "스파르타 물류", "서울시 강남구")))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COMPANY_HUB_CHANGE_NOT_ALLOWED"));
+
+            assertThat(findCompany(companyId).getHubId()).isEqualTo(hubId);
+        }
+
+        @Test
+        @DisplayName("권한이 없는 사용자가 다른 허브로 변경을 요청하면 409가 아닌 403을 반환한다")
+        void updateWithDifferentHubByNonOwner() throws Exception {
+            UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", UUID.randomUUID())
+                            .header("X-User-Role", ROLE_USER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(UUID.randomUUID(), "스파르타 택배", "부산시 해운대구")))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("COMPANY_ACCESS_DENIED"));
+
+            assertThat(findCompany(companyId).getHubId()).isEqualTo(hubId);
         }
 
         @Test
@@ -328,26 +407,17 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
     }
 
     @Nested
-    @DisplayName("회원가입 시 기존 업체에 관리자 지정 (내부 API)")
+    @DisplayName("업체 관리자 지정 (MASTER)")
     class AssignManager {
 
-        // 회원가입 중 호출이라 사용자 헤더 없이 요청한다
-        private ResultActions requestAssign(UUID companyId, UUID managerId) throws Exception {
-            return mockMvc.perform(patch("/internal/companies/{companyId}/manager", companyId)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("""
-                            {"userId": "%s"}
-                            """.formatted(managerId)));
-        }
-
         @Test
-        @DisplayName("관리자가 없는 업체에 지정하면 DB에 반영되고, 지정된 사용자는 업체를 수정할 수 있다")
+        @DisplayName("MASTER가 지정하면 DB에 반영되고, 지정된 사용자는 업체를 수정할 수 있다")
         void assign() throws Exception {
             UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
 
-            requestAssign(companyId, ownerId)
+            requestAssign(companyId, masterId, ROLE_MASTER, ownerId)
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.message").value("업체 연결이 처리되었습니다."))
+                    .andExpect(jsonPath("$.message").value("업체 관리자가 지정되었습니다."))
                     .andExpect(jsonPath("$.data.userId").value(ownerId.toString()));
 
             assertThat(findCompany(companyId).getUserId()).isEqualTo(ownerId);
@@ -361,15 +431,42 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
         }
 
         @Test
-        @DisplayName("이미 관리자가 있으면 200을 반환하고 기존 관리자가 유지된다 (두 번째 직원 가입)")
+        @DisplayName("이미 관리자가 있으면 새로 지정한 사용자로 변경된다")
         void assignAlreadyAssigned() throws Exception {
             UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
+            UUID newManagerId = UUID.randomUUID();
 
-            requestAssign(companyId, UUID.randomUUID())
+            requestAssign(companyId, masterId, ROLE_MASTER, newManagerId)
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.userId").value(ownerId.toString()));
+                    .andExpect(jsonPath("$.data.userId").value(newManagerId.toString()));
 
-            assertThat(findCompany(companyId).getUserId()).isEqualTo(ownerId);
+            assertThat(findCompany(companyId).getUserId()).isEqualTo(newManagerId);
+        }
+
+        @Test
+        @DisplayName("MASTER가 아니면 403을 반환하고 관리자가 바뀌지 않는다")
+        void assignByUser() throws Exception {
+            UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
+
+            requestAssign(companyId, ownerId, ROLE_USER, ownerId)
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("COMPANY_ACCESS_DENIED"));
+
+            assertThat(findCompany(companyId).getUserId()).isNull();
+        }
+
+        @Test
+        @DisplayName("대상이 이 업체 소속이 아니면 400 COMPANY_MANAGER_NOT_MEMBER를 반환하고 관리자가 바뀌지 않는다")
+        void assignNotMember() throws Exception {
+            UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
+            willThrow(new BaseException(ErrorCode.COMPANY_MANAGER_NOT_MEMBER))
+                    .given(userValidator).validateCompanyMember(masterId, ROLE_MASTER, ownerId, companyId);
+
+            requestAssign(companyId, masterId, ROLE_MASTER, ownerId)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("COMPANY_MANAGER_NOT_MEMBER"));
+
+            assertThat(findCompany(companyId).getUserId()).isNull();
         }
 
         @Test
@@ -378,7 +475,7 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
             UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
             requestDelete(companyId, masterId, ROLE_MASTER).andExpect(status().isOk());
 
-            requestAssign(companyId, ownerId)
+            requestAssign(companyId, masterId, ROLE_MASTER, ownerId)
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("COMPANY_NOT_FOUND"));
         }
@@ -388,7 +485,9 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
         void assignWithoutUserId() throws Exception {
             UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
 
-            mockMvc.perform(patch("/internal/companies/{companyId}/manager", companyId)
+            mockMvc.perform(patch("/companies/{companyId}/manager", companyId)
+                            .header("X-User-Id", masterId)
+                            .header("X-User-Role", ROLE_MASTER)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isBadRequest())
