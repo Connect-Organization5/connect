@@ -45,8 +45,8 @@ public class Company extends BaseEntity {
         return new Company(userId, hubId, name, address);
     }
 
-    public void update(UUID hubId, String name, String address) {
-        this.hubId = hubId;
+    // 소속 허브는 생성 후 변경하지 않는다 (허브별 재고·주문 데이터 정합성 보호)
+    public void update(String name, String address) {
         this.name = name;
         this.address = address;
     }

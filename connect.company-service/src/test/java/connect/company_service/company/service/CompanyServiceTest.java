@@ -250,11 +250,11 @@ class CompanyServiceTest {
     @DisplayName("업체 수정")
     class UpdateCompany {
 
-        private final UUID newHubId = UUID.randomUUID();
-        private final UpdateCompanyRequest request = new UpdateCompanyRequest(newHubId, "새 업체명", "부산시 해운대구");
+        // 소속 허브는 그대로 두고 업체명·주소만 바꾸는 요청
+        private final UpdateCompanyRequest request = new UpdateCompanyRequest(hubId, "새 업체명", "부산시 해운대구");
 
         @Test
-        @DisplayName("MASTER는 업체를 수정할 수 있다")
+        @DisplayName("MASTER는 업체를 수정할 수 있다 (소속 허브 유지)")
         void updateByMaster() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
@@ -263,7 +263,7 @@ class CompanyServiceTest {
             CompanyResponse response = companyService.updateCompany(
                     companyId, UUID.randomUUID(), ROLE_MASTER, request);
 
-            assertThat(company.getHubId()).isEqualTo(newHubId);
+            assertThat(company.getHubId()).isEqualTo(hubId);
             assertThat(company.getName()).isEqualTo("새 업체명");
             assertThat(company.getAddress()).isEqualTo("부산시 해운대구");
             assertThat(response.name()).isEqualTo("새 업체명");
@@ -337,7 +337,7 @@ class CompanyServiceTest {
         void updateWithSameName() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
-            UpdateCompanyRequest sameNameRequest = new UpdateCompanyRequest(newHubId, "스파르타 업체", "부산시 해운대구");
+            UpdateCompanyRequest sameNameRequest = new UpdateCompanyRequest(hubId, "스파르타 업체", "부산시 해운대구");
 
             companyService.updateCompany(companyId, UUID.randomUUID(), ROLE_MASTER, sameNameRequest);
 
@@ -346,33 +346,65 @@ class CompanyServiceTest {
         }
 
         @Test
-        @DisplayName("변경할 hubId가 존재하는 Hub인지 확인한 뒤 업체를 수정한다")
-        void updateValidatesHub() {
+        @DisplayName("소속 허브가 같으면 업체명만 바꿔도 수정되고, 허브는 바뀌지 않으므로 Hub Service를 호출하지 않는다")
+        void updateNameWithSameHub() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
-            given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
+            given(companyRepository.existsByNameAndDeletedAtIsNull("스파르타 택배")).willReturn(false);
 
-            companyService.updateCompany(companyId, userId, ROLE_USER, request);
+            companyService.updateCompany(companyId, userId, ROLE_USER,
+                    new UpdateCompanyRequest(hubId, "스파르타 택배", "서울시 강남구"));
 
-            verify(hubValidator).validateHubExists(newHubId);
-            assertThat(company.getHubId()).isEqualTo(newHubId);
+            assertThat(company.getHubId()).isEqualTo(hubId);
+            assertThat(company.getName()).isEqualTo("스파르타 택배");
+            assertThat(company.getAddress()).isEqualTo("서울시 강남구");
+            verifyNoInteractions(hubValidator);
         }
 
         @Test
-        @DisplayName("존재하지 않는 Hub면 HUB_NOT_FOUND 예외가 발생하고 업체를 수정하지 않는다")
-        void updateWithHubNotFound() {
+        @DisplayName("소속 허브가 같으면 주소만 바꿔도 수정된다")
+        void updateAddressWithSameHub() {
             Company company = createCompany(companyId, "스파르타 업체");
             given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
-            given(companyRepository.existsByNameAndDeletedAtIsNull(request.name())).willReturn(false);
-            willThrow(new BaseException(ErrorCode.HUB_NOT_FOUND)).given(hubValidator).validateHubExists(newHubId);
 
-            Throwable thrown = catchThrowable(() -> companyService.updateCompany(
-                    companyId, userId, ROLE_USER, request));
+            companyService.updateCompany(companyId, userId, ROLE_USER,
+                    new UpdateCompanyRequest(hubId, "스파르타 업체", "대전시 유성구"));
 
-            assertBaseException(thrown, ErrorCode.HUB_NOT_FOUND);
-            // 수정 전에 중단되므로 기존 값이 유지된다
             assertThat(company.getHubId()).isEqualTo(hubId);
             assertThat(company.getName()).isEqualTo("스파르타 업체");
+            assertThat(company.getAddress()).isEqualTo("대전시 유성구");
+        }
+
+        @Test
+        @DisplayName("다른 허브로 변경을 요청하면 COMPANY_HUB_CHANGE_NOT_ALLOWED 예외가 발생하고 기존 업체 정보가 유지된다")
+        void updateWithDifferentHub() {
+            Company company = createCompany(companyId, "스파르타 업체");
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+            UpdateCompanyRequest changeHubRequest = new UpdateCompanyRequest(UUID.randomUUID(), "새 업체명", "부산시 해운대구");
+
+            Throwable thrown = catchThrowable(() -> companyService.updateCompany(
+                    companyId, UUID.randomUUID(), ROLE_MASTER, changeHubRequest));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_HUB_CHANGE_NOT_ALLOWED);
+            // 수정 전에 중단되므로 허브·업체명·주소 모두 기존 값이 유지된다
+            assertThat(company.getHubId()).isEqualTo(hubId);
+            assertThat(company.getName()).isEqualTo("스파르타 업체");
+            assertThat(company.getAddress()).isEqualTo("서울시 강남구");
+            verify(companyRepository, never()).existsByNameAndDeletedAtIsNull(anyString());
+            verifyNoInteractions(hubValidator);
+        }
+
+        @Test
+        @DisplayName("권한이 없으면 허브를 바꾸려 해도 COMPANY_ACCESS_DENIED 예외가 먼저 발생한다")
+        void updateWithDifferentHubByNonOwner() {
+            Company company = createCompany(companyId, "스파르타 업체");
+            given(companyRepository.findByIdAndDeletedAtIsNull(companyId)).willReturn(Optional.of(company));
+
+            Throwable thrown = catchThrowable(() -> companyService.updateCompany(
+                    companyId, UUID.randomUUID(), ROLE_USER, new UpdateCompanyRequest(UUID.randomUUID(), "새 업체명", "부산시 해운대구")));
+
+            assertBaseException(thrown, ErrorCode.COMPANY_ACCESS_DENIED);
+            assertThat(company.getHubId()).isEqualTo(hubId);
         }
     }
 
