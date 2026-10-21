@@ -359,8 +359,8 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 단건 조회 성공 - MASTER 는 같은 소속 회원 조회 가능")
-    void getUser_masterSameAffiliation() {
+    @DisplayName("회원 단건 조회 성공 - MASTER 는 다른 회원 조회 가능")
+    void getUser_masterOther() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
@@ -389,33 +389,35 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("회원 단건 조회 실패 - MASTER 라도 소속 유형이 다르면 USER_ACCESS_DENIED")
+    @DisplayName("회원 단건 조회 성공 - MASTER 는 소속 유형이 다른 회원도 조회 가능")
     void getUser_masterDifferentAffiliationType() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.USER, AffiliationType.HUB, AFFILIATION_ID);
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
 
-        // when & then
-        assertThatThrownBy(() -> userService.getUser(idOf(2), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        // when
+        UserResponseDto response = userService.getUser(idOf(2), requester);
+
+        // then
+        assertThat(response.id()).isEqualTo(idOf(2));
+        assertThat(response.affiliationType()).isEqualTo(AffiliationType.HUB);
     }
 
     @Test
-    @DisplayName("회원 단건 조회 실패 - MASTER 라도 소속 ID 가 다르면 USER_ACCESS_DENIED")
+    @DisplayName("회원 단건 조회 성공 - MASTER 는 소속 ID 가 다른 회원도 조회 가능")
     void getUser_masterDifferentAffiliationId() {
         // given
         User requester = userOf(1, UserRole.MASTER, AffiliationType.COMPANY, AFFILIATION_ID);
         User target = userOf(2, UserRole.USER, AffiliationType.COMPANY, OTHER_AFFILIATION_ID);
         given(userRepository.findById(idOf(2))).willReturn(Optional.of(target));
 
-        // when & then
-        assertThatThrownBy(() -> userService.getUser(idOf(2), requester))
-                .isInstanceOf(BaseException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.USER_ACCESS_DENIED);
+        // when
+        UserResponseDto response = userService.getUser(idOf(2), requester);
+
+        // then
+        assertThat(response.id()).isEqualTo(idOf(2));
+        assertThat(response.affiliationId()).isEqualTo(OTHER_AFFILIATION_ID);
     }
 
     @Test
@@ -427,6 +429,20 @@ class UserServiceTest {
 
         // when & then
         assertThatThrownBy(() -> userService.getUser(idOf(999), requester))
+                .isInstanceOf(BaseException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.USER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("회원 단건 조회 실패 - USER 가 본인을 조회했는데 회원이 없으면(탈퇴 등) USER_NOT_FOUND")
+    void getUser_userSelfNotFound() {
+        // given
+        User requester = userOf(1, UserRole.USER, AffiliationType.COMPANY, AFFILIATION_ID);
+        given(userRepository.findById(idOf(1))).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> userService.getUser(idOf(1), requester))
                 .isInstanceOf(BaseException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.USER_NOT_FOUND);
