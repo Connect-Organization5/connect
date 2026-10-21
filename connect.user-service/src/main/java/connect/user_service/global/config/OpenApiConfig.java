@@ -28,7 +28,7 @@ public class OpenApiConfig {
               1. 클라이언트가 `Authorization: Bearer {JWT}` 로 Gateway 에 요청합니다.
               2. Gateway 가 JWT 를 검증하고, `Authorization` 헤더는 그대로 User Service 로 전달합니다.
               3. User Service 는 `X-User-*` 헤더를 사용하지 않고 **JWT 를 직접 다시 검증**한 뒤, 토큰의 `username` 으로 DB 에서 회원을 조회해 인증합니다.
-            - **User Service 자체 Swagger UI (직접 접근, 19090)** — `http://localhost:19090/swagger-ui/index.html`
+            - **User Service 자체 Swagger UI (직접 접근, 8081)** — `http://localhost:8081/swagger-ui/index.html`
               - Gateway 를 거치지 않아도 JWT 검증은 그대로 적용됩니다. `/auth/**`, `/internal/**` 외의 API 는 Authorize 에 토큰을 입력해야 합니다.
               - 로컬 개발·테스트 용도입니다. 운영에서는 서비스 포트를 외부에 노출하지 않고 Gateway 로만 접근해야 합니다.
             - 토큰이 없으면 401(`UNAUTHORIZED`), 서명 불일치·만료·삭제된 회원의 토큰이면 401(`INVALID_TOKEN`) 입니다.
@@ -57,14 +57,14 @@ public class OpenApiConfig {
                         .title("User Service API")
                         .description(DESCRIPTION)
                         .version("v1"))
-                // 상대 경로: 문서를 연 주소로 호출한다 (Gateway 8080 이면 Gateway 경유, 19090 이면 직접 호출)
+                // 상대 경로: 문서를 연 주소로 호출한다 (Gateway 8080 이면 Gateway 경유, 8081 이면 직접 호출)
                 .servers(List.of(
-                        new Server().url("/").description("현재 Swagger UI 주소 기준 (Gateway 8080 이면 Gateway 경유, 19090 이면 직접 호출)")))
+                        new Server().url("/").description("현재 Swagger UI 주소 기준 (Gateway 8080 이면 Gateway 경유, 8081 이면 직접 호출)")))
                 .components(new Components()
                         .addSecuritySchemes(GATEWAY_AUTH, new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
                                 .bearerFormat("JWT")
-                                .description("POST /auth/login 으로 발급받은 JWT (data.access_token). Gateway 와 User Service 모두 이 값을 검증하므로 직접 호출(19090) 시에도 필요합니다.")));
+                                .description("POST /auth/login 으로 발급받은 JWT (data.access_token). Gateway 와 User Service 모두 이 값을 검증하므로 직접 호출(8081) 시에도 필요합니다.")));
     }
 }

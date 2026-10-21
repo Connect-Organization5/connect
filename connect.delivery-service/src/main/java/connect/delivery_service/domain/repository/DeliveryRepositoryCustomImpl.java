@@ -33,7 +33,7 @@ import static connect.delivery_service.domain.entity.QDeliveryRoute.deliveryRout
 public class DeliveryRepositoryCustomImpl implements DeliveryRepositoryCustom {
     private final JPAQueryFactory queryFactory;
 
-    public record DriverLoad(UUID userId, long activeCount, LocalDateTime lastDeliveryCreatedAt) {}
+    public record DriverLoad(UUID userId, long activeCount, LocalDateTime lastAssignedAt) {}
 
     @Override
     public Page<Delivery> search(DeliverySearchCondition cond, UUID userId,
@@ -79,10 +79,10 @@ public class DeliveryRepositoryCustomImpl implements DeliveryRepositoryCustom {
                 .otherwise(0L)
                 .sum();
 
-        DateTimeExpression<LocalDateTime> lastDeliveryCreatedAt = delivery.createdAt.max();
+        DateTimeExpression<LocalDateTime> lastAssignedAt = delivery.assignedAt.max();
 
         return queryFactory
-                .select(delivery.deliveryUserId, activeCount, lastDeliveryCreatedAt)
+                .select(delivery.deliveryUserId, activeCount, lastAssignedAt)
                 .from(delivery)
                 .where(delivery.deliveryUserId.in(userIds))
                 .groupBy(delivery.deliveryUserId)
@@ -93,7 +93,7 @@ public class DeliveryRepositoryCustomImpl implements DeliveryRepositoryCustom {
                         t -> new DriverLoad(
                                 t.get(delivery.deliveryUserId),
                                 t.get(activeCount),
-                                t.get(lastDeliveryCreatedAt))));
+                                t.get(lastAssignedAt))));
     }
 
     // 같은 구간(출발·도착 허브)에서 허브 출발 전(HUB_WAITING)인 배송을 담당자별로 센다. 묶음 배정 후보 조회용
