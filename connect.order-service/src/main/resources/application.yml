@@ -6,7 +6,7 @@ spring:
     name: order-service
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/connect_order
+    url: ${ORDER_DB_URL:jdbc:postgresql://localhost:5432/connect_order}
     username: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
 
