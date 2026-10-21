@@ -19,6 +19,7 @@ public enum ErrorCode {
     COMPANY_ACCESS_DENIED(HttpStatus.FORBIDDEN, "업체에 대한 권한이 없습니다."),
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "업체를 찾을 수 없습니다."),
     COMPANY_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 존재하는 업체입니다."),
+    COMPANY_HUB_CHANGE_NOT_ALLOWED(HttpStatus.CONFLICT, "업체의 소속 허브는 변경할 수 없습니다."),
     COMPANY_MANAGER_NOT_MEMBER(HttpStatus.BAD_REQUEST, "해당 업체 소속 사용자만 관리자로 지정할 수 있습니다."),
 
     // product

@@ -86,15 +86,17 @@ public class CompanyService {
 
         validateCompanyAccess(company, userId, userRole);
 
+        // 소속 허브는 생성 후 변경할 수 없다. Hub 별 재고와 주문의 출발 허브가 어긋나지 않도록 다른 hubId 요청은 거부한다
+        if (!company.getHubId().equals(request.hubId())) {
+            throw new BaseException(ErrorCode.COMPANY_HUB_CHANGE_NOT_ALLOWED);
+        }
+
         boolean nameChanged = !company.getName().equals(request.name());
         if (nameChanged && companyRepository.existsByNameAndDeletedAtIsNull(request.name())) {
             throw new BaseException(ErrorCode.COMPANY_ALREADY_EXISTS);
         }
 
-        // 존재하지 않는 Hub면 HUB_NOT_FOUND로 중단되어 수정하지 않는다
-        hubValidator.validateHubExists(request.hubId());
-
-        company.update(request.hubId(), request.name(), request.address());
+        company.update(request.name(), request.address());
 
         return CompanyResponse.from(company);
     }

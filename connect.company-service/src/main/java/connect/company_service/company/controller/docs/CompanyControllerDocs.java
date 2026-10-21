@@ -91,7 +91,8 @@ public interface CompanyControllerDocs {
     @Operation(
             summary = "업체 수정",
             description = """
-                    업체의 Hub, 업체명, 주소를 수정합니다(PUT 전체 수정). 변경할 Hub 의 존재 여부를 Hub Service 로 확인합니다.
+                    업체명, 주소를 수정합니다(PUT 전체 수정).
+                    - 소속 Hub 는 생성 후 변경할 수 없습니다. 요청 본문의 `hubId` 는 현재 소속 Hub 와 같아야 하며, 다르면 409(`COMPANY_HUB_CHANGE_NOT_ALLOWED`)를 반환하고 업체 정보는 변경되지 않습니다.
 
                     **권한**: `MASTER` 또는 해당 업체 관리자(`Company.userId == X-User-Id`)
                     - 관리자가 지정되지 않은 업체는 `MASTER` 만 수정할 수 있습니다.
@@ -103,11 +104,9 @@ public interface CompanyControllerDocs {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "MASTER 도 업체 관리자도 아님 (COMPANY_ACCESS_DENIED)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "없거나 삭제된 업체(COMPANY_NOT_FOUND), 존재하지 않는 Hub(HUB_NOT_FOUND)",
+            @ApiResponse(responseCode = "404", description = "없거나 삭제된 업체 (COMPANY_NOT_FOUND)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "다른 업체와 업체명 중복 (COMPANY_ALREADY_EXISTS)",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "500", description = "Hub Service 장애 등 서버 오류 (INTERNAL_SERVER_ERROR)",
+            @ApiResponse(responseCode = "409", description = "소속 Hub 변경 요청(COMPANY_HUB_CHANGE_NOT_ALLOWED), 다른 업체와 업체명 중복(COMPANY_ALREADY_EXISTS)",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     ResponseEntity<connect.company_service.global.dto.ApiResponse<CompanyResponse>> updateCompany(

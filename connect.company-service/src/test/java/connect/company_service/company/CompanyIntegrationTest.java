@@ -240,23 +240,93 @@ class CompanyIntegrationTest extends IntegrationTestSupport {
     class Update {
 
         @Test
-        @DisplayName("업체를 생성한 사용자가 수정하면 DB에 반영된다")
+        @DisplayName("업체 관리자가 소속 허브를 유지한 채 업체명을 수정하면 200이고 DB에 반영된다")
         void updateByOwner() throws Exception {
             UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
-            UUID newHubId = UUID.randomUUID();
 
             mockMvc.perform(put("/companies/{companyId}", companyId)
                             .header("X-User-Id", ownerId)
                             .header("X-User-Role", ROLE_USER)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(body(newHubId, "스파르타 택배", "부산시 해운대구")))
+                            .content(body(hubId, "스파르타 택배", "서울시 강남구")))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.name").value("스파르타 택배"));
+                    .andExpect(jsonPath("$.data.name").value("스파르타 택배"))
+                    .andExpect(jsonPath("$.data.hubId").value(hubId.toString()));
 
             Company updated = findCompany(companyId);
-            assertThat(updated.getHubId()).isEqualTo(newHubId);
+            assertThat(updated.getHubId()).isEqualTo(hubId);
             assertThat(updated.getName()).isEqualTo("스파르타 택배");
+            assertThat(updated.getAddress()).isEqualTo("서울시 강남구");
+        }
+
+        @Test
+        @DisplayName("MASTER가 소속 허브를 유지한 채 주소를 수정하면 200이고 DB에 반영된다")
+        void updateAddressByMaster() throws Exception {
+            UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", masterId)
+                            .header("X-User-Role", ROLE_MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(hubId, "스파르타 물류", "부산시 해운대구")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.address").value("부산시 해운대구"));
+
+            Company updated = findCompany(companyId);
+            assertThat(updated.getHubId()).isEqualTo(hubId);
             assertThat(updated.getAddress()).isEqualTo("부산시 해운대구");
+        }
+
+        @Test
+        @DisplayName("다른 허브로 변경을 요청하면 409 COMPANY_HUB_CHANGE_NOT_ALLOWED를 반환하고 DB는 그대로다")
+        void updateWithDifferentHub() throws Exception {
+            UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", ownerId)
+                            .header("X-User-Role", ROLE_USER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(UUID.randomUUID(), "스파르타 택배", "부산시 해운대구")))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COMPANY_HUB_CHANGE_NOT_ALLOWED"))
+                    .andExpect(jsonPath("$.message").value("업체의 소속 허브는 변경할 수 없습니다."));
+
+            Company unchanged = findCompany(companyId);
+            assertThat(unchanged.getHubId()).isEqualTo(hubId);
+            assertThat(unchanged.getName()).isEqualTo("스파르타 물류");
+            assertThat(unchanged.getAddress()).isEqualTo("서울시 강남구");
+        }
+
+        @Test
+        @DisplayName("MASTER도 다른 허브로는 변경할 수 없어 409를 반환한다")
+        void updateWithDifferentHubByMaster() throws Exception {
+            UUID companyId = createCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", masterId)
+                            .header("X-User-Role", ROLE_MASTER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(UUID.randomUUID(), "스파르타 물류", "서울시 강남구")))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("COMPANY_HUB_CHANGE_NOT_ALLOWED"));
+
+            assertThat(findCompany(companyId).getHubId()).isEqualTo(hubId);
+        }
+
+        @Test
+        @DisplayName("권한이 없는 사용자가 다른 허브로 변경을 요청하면 409가 아닌 403을 반환한다")
+        void updateWithDifferentHubByNonOwner() throws Exception {
+            UUID companyId = createOwnedCompany("스파르타 물류", "서울시 강남구");
+
+            mockMvc.perform(put("/companies/{companyId}", companyId)
+                            .header("X-User-Id", UUID.randomUUID())
+                            .header("X-User-Role", ROLE_USER)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(UUID.randomUUID(), "스파르타 택배", "부산시 해운대구")))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("COMPANY_ACCESS_DENIED"));
+
+            assertThat(findCompany(companyId).getHubId()).isEqualTo(hubId);
         }
 
         @Test
