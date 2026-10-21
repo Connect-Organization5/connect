@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -304,6 +306,25 @@ class StockInboundIntegrationTest {
 
     // ---------- 입고 이력 조회 ----------
 
+    // 입고 이력 조회. userId·role·companyId가 null이면 해당 헤더·파라미터를 보내지 않는다.
+    private ResultActions getInbounds(UUID userId, String role, UUID stockId, UUID companyId) throws Exception {
+        MockHttpServletRequestBuilder request = get("/hubs/stocks/{id}/inbounds", stockId);
+        if (userId != null) {
+            request.header("X-User-Id", userId);
+        }
+        if (role != null) {
+            request.header("X-User-Role", role);
+        }
+        if (companyId != null) {
+            request.param("companyId", companyId.toString());
+        }
+        return mockMvc.perform(request);
+    }
+
+    private ResultActions getInboundsAsMaster(UUID stockId) throws Exception {
+        return getInbounds(MASTER_USER, "MASTER", stockId, null);
+    }
+
     @Test
     void 입고_이력을_최신순으로_조회한다() throws Exception {
         TestStock stock = createStock(0);
@@ -312,7 +333,7 @@ class StockInboundIntegrationTest {
         inbound("MASTER", bodyWithInboundId(first, SEOUL_COMPANY, SEOUL, stock.productId(), "3")).andExpect(status().isOk());
         inbound("MASTER", bodyWithInboundId(second, SEOUL_COMPANY, SEOUL, stock.productId(), "4")).andExpect(status().isOk());
 
-        mockMvc.perform(get("/hubs/stocks/{id}/inbounds", stock.id()))
+        getInboundsAsMaster(stock.id())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(2))
                 .andExpect(jsonPath("$.data.content[0].inboundId").value(second.toString()))
@@ -321,7 +342,8 @@ class StockInboundIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].createdAt").exists())
                 .andExpect(jsonPath("$.data.content[1].inboundId").value(first.toString()));
 
-        mockMvc.perform(get("/hubs/stocks/{id}/inbounds", stock.id()).param("size", "1").param("page", "1"))
+        mockMvc.perform(get("/hubs/stocks/{id}/inbounds", stock.id())
+                        .header("X-User-Id", MASTER_USER).header("X-User-Role", "MASTER").param("size", "1").param("page", "1"))
                 .andExpect(jsonPath("$.data.content[0].inboundId").value(first.toString()))
                 .andExpect(jsonPath("$.data.totalPages").value(2));
     }
@@ -332,12 +354,98 @@ class StockInboundIntegrationTest {
         inbound("MASTER", stock, "3").andExpect(status().isOk());
         jdbcTemplate.update("update p_stocks set deleted_at = now() where id = ?", stock.id());
 
-        mockMvc.perform(get("/hubs/stocks/{id}/inbounds", stock.id()))
+        getInboundsAsMaster(stock.id())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1));
-        mockMvc.perform(get("/hubs/stocks/{id}/inbounds", UUID.randomUUID()))
+        getInboundsAsMaster(UUID.randomUUID())
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("STOCK_NOT_FOUND"));
+    }
+
+    @Test
+    void MASTER의_입고_이력_조회는_Company를_호출하지_않는다() throws Exception {
+        TestStock stock = createStock(0);
+        inbound("MASTER", stock, "3").andExpect(status().isOk());
+        clearInvocations(companyClient);
+
+        getInboundsAsMaster(stock.id()).andExpect(status().isOk());
+
+        verifyNoInteractions(companyClient);
+    }
+
+    @Test
+    void 업체_관리자는_자기_업체_재고의_입고_이력을_조회한다() throws Exception {
+        TestStock stock = createStock(0);
+        inbound("MASTER", stock, "3").andExpect(status().isOk());
+
+        getInbounds(SEOUL_MANAGER, "USER", stock.id(), SEOUL_COMPANY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    void 다른_업체의_관리자와_일반_사용자는_입고_이력_조회가_403이다() throws Exception {
+        TestStock stock = createStock(0);
+        inbound("MASTER", stock, "3").andExpect(status().isOk());
+
+        // 서울 업체 ID를 보내도 관리자가 아니면 403
+        getInbounds(BUSAN_MANAGER, "USER", stock.id(), SEOUL_COMPANY)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        getInbounds(OTHER_USER, "USER", stock.id(), SEOUL_COMPANY)
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 자기_업체_ID로_다른_허브의_재고_이력을_조회하면_409이다() throws Exception {
+        // 부산 허브 재고를 부산 업체 관리자가 아닌 서울 업체 관리자가 자기 업체 ID로 조회
+        TestStock busan = createStock(BUSAN, UUID.randomUUID(), 0);
+
+        getInbounds(SEOUL_MANAGER, "USER", busan.id(), SEOUL_COMPANY)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STOCK_HUB_MISMATCH"));
+    }
+
+    @Test
+    void 업체_관리자는_업체에_없는_상품의_재고_이력을_조회할_수_없다() throws Exception {
+        TestStock stock = createStock(0);
+        given(companyClient.getProduct(SEOUL_COMPANY, stock.productId())).willThrow(notFound());
+
+        getInbounds(SEOUL_MANAGER, "USER", stock.id(), SEOUL_COMPANY)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+    }
+
+    @Test
+    void 업체_관리자는_삭제된_재고의_입고_이력을_조회할_수_없다() throws Exception {
+        TestStock stock = createStock(0);
+        inbound("MASTER", stock, "3").andExpect(status().isOk());
+        jdbcTemplate.update("update p_stocks set deleted_at = now() where id = ?", stock.id());
+
+        getInbounds(SEOUL_MANAGER, "USER", stock.id(), SEOUL_COMPANY)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STOCK_DELETED"));
+    }
+
+    @Test
+    void MASTER가_아니면_입고_이력_조회에_업체_ID가_필요하다() throws Exception {
+        TestStock stock = createStock(0);
+
+        getInbounds(SEOUL_MANAGER, "USER", stock.id(), null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMPANY_ID_REQUIRED"));
+    }
+
+    @Test
+    void 입고_이력_조회에_사용자_헤더가_없으면_400이다() throws Exception {
+        TestStock stock = createStock(0);
+
+        getInbounds(MASTER_USER, null, stock.id(), null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_HEADER"));
+        getInbounds(null, "MASTER", stock.id(), null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MISSING_HEADER"));
     }
 
     @Test

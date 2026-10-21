@@ -31,7 +31,7 @@ public class OpenApiConfig {
 
             ### 권한
             - 허브·이동 경로·재고 조회: 별도 권한 검사 없음 (Gateway 의 JWT 검증만 통과하면 됨)
-            - 재고 등록·입고: `MASTER` 또는 해당 업체 관리자(`Company.userId == X-User-Id`). company-service 에 확인합니다.
+            - 재고 등록·입고·입고 이력 조회: `MASTER` 또는 해당 업체 관리자(`Company.userId == X-User-Id`). company-service 에 확인합니다. (입고 이력 조회는 MASTER 면 확인 생략)
 
             ### 페이징
             - `page` 는 0 이상, `size` 는 1~100 (기본 `page=0`, `size=10`). 벗어나면 400 입니다.
