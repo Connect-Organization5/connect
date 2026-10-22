@@ -15,4 +15,6 @@ public interface DeliveryRepositoryCustom {
                           AffiliationType affiliationType, Pageable pageable);
 
     Map<UUID, DeliveryRepositoryCustomImpl.DriverLoad> findDriverLoads(List<UUID> userIds);
+
+    Map<UUID, Long> countWaitingDeliveriesOnRoute(UUID departureHubId, UUID arrivalHubId, List<UUID> userIds);
 }
